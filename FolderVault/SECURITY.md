@@ -5,7 +5,7 @@
 If you find a security issue, please report it. I would genuinely rather know
 than not.
 
-- Open an issue: `https://github.com/<YOUR-GITHUB-USERNAME>/FolderVault/issues`
+- Open an issue: `https://github.com/leedongg2/foldervault/issues`
 - If you think it is sensitive, put `[security]` in the title and keep the
   proof-of-concept minimal; we can take details private from there.
 - Please include: what you attacked, what you expected, what actually

@@ -1,103 +1,113 @@
 # FolderVault
 
-> "Dad asked me to make a folder password protector. I got carried away."
+> "Dad asked me to make a folder password protector. I kind of got carried away."
 
-A folder encryption tool I built as a 14-year-old Korean middle schooler. It
-does not "hide" folders — it actually encrypts the file contents, so without
-the correct password nobody (me included) can get the data back.
+I'm 14, in middle school in Korea, and I built this mostly over a few late
+nights. It doesn't *hide* folders. It actually encrypts what's inside them, so
+without the password nobody gets the data back. Not you, not me, not the
+program.
 
-I am publishing it so people can review it and break it. That is the point —
-see [Please tear it apart](#please-tear-it-apart).
+I put it online because I want people to break it. I mean that — jump to
+[Please tear it apart](#please-tear-it-apart).
 
-Korean: [README.ko.md](README.ko.md)
+Korean readme: [README.ko.md](README.ko.md)
 
-## What it does
+## What's in it
 
-- Cascade AEAD: AES-256-GCM then ChaCha20-Poly1305, independent keys and nonces
-- Argon2id key derivation, up to 1 GiB memory (standard 256 MiB / high 512 MiB / paranoid 1 GiB)
-- Hybrid signatures: Ed25519 + ML-DSA-65 (NIST FIPS 204, post-quantum) — both must verify
-- HKDF-SHA256 subkey separation (header / index / per-file keys)
-- Padmé padding (PURBs paper) to blur individual file sizes (< ~12% overhead)
-- Single-file container; filenames and folder structure are encrypted too
-- Honest about its limits (see [SECURITY.md](SECURITY.md))
+- AES-256-GCM and ChaCha20-Poly1305, cascaded: encrypt with one, then the
+  other, separate keys and separate nonces. A break in one still leaves the
+  other.
+- Argon2id turns your password into the key. Up to 1 GiB of memory on the
+  paranoid setting (256 MiB standard / 512 MiB high / 1 GiB paranoid).
+- Every chunk is tied to its file path and position, so you can't reorder,
+  cut, or splice the vault without it failing to open.
+- The whole vault is signed twice: Ed25519 and ML-DSA-65 (the NIST FIPS 204
+  post-quantum one). Both have to verify or it won't open.
+- Padmé padding (from the PURBs paper) so the file doesn't leak exact sizes.
+- One `.foldervault` file. Filenames and the folder tree are encrypted too.
 
-## Why post-quantum, and why only half of it
+No hand-rolled crypto anywhere. It all sits on `cryptography` and
+`argon2-cffi`.
 
-The confidentiality here is already quantum-safe. It is pure symmetric crypto
-driven by a password (Argon2id then AES-256 + ChaCha20). There is no public-key
-key exchange to "harvest now, decrypt later," so Shor's algorithm does not
-apply and only Grover does — which merely halves an already-infeasible 256-bit
-brute force.
+## Why post-quantum, and why I only did half
 
-So I deliberately did not add ML-KEM. There is no key exchange for it to
-protect; bolting it on would be security theater. Where a quantum computer
-*would* matter is the integrity signature, so that is the only place I applied
-PQC: ML-DSA-65, hybridised with classical Ed25519, and a vault opens only if
-both signatures verify. That is the honest, correct scope — not "we sprinkled
-post-quantum on everything."
+Because the confidentiality here is already quantum-safe, so I didn't fake
+the other half.
+
+It's all symmetric, driven by your password (Argon2id, then AES-256 plus
+ChaCha20). There's no public-key key exchange anywhere, so "record it now,
+decrypt it once quantum computers exist" doesn't apply, and Shor's algorithm
+has nothing to attack. Grover's just halves a 256-bit key, and halving 256
+bits still isn't happening.
+
+So I didn't bolt on ML-KEM. There's no key exchange for it to protect; it
+would just be a word in the README. The one place a quantum computer actually
+bites is the signature, so that's the one place I put post-quantum crypto:
+ML-DSA-65, right next to classical Ed25519, both required. That's the honest
+scope. I'd rather get one thing right than sprinkle "post-quantum" on
+everything.
 
 ## Quickstart
 
 ```
 pip install -r requirements.txt
-python folder_vault.py      # GUI (Korean or English — Settings -> language)
-python test_vault.py        # 143 self-test assertions across 25 categories
+python folder_vault.py      # GUI, Korean or English (switch in Settings)
+python test_vault.py        # 143 checks across 25 categories
 ```
 
-On Windows you can just double-click `start.bat`; it sets up a virtual
-environment on first run.
+On Windows just double-click `start.bat`. It builds a venv the first time,
+then it's instant.
 
-## How this was built
+## How I built this
 
-This project was built with AI assistance, and I want to be upfront about
-exactly how — pretending otherwise would be dishonest, and it also misses the
-part I think is actually interesting.
+I used AI to build parts of this, and I'd rather say so straight than pretend
+I didn't. The honest version is more interesting anyway.
 
-- **Architecture, threat model, and design decisions are mine.** Why PQC and
-  where it actually matters, why a cascade AEAD, why Padmé padding, what to
-  test, which edge cases matter, the data-loss safety model — those were my
-  calls.
-- **The cryptographic primitive wiring was generated with Claude Opus 4.7
-  from my specifications.** Everything uses vetted libraries (`cryptography`,
-  `argon2-cffi`). No hand-rolled crypto, on purpose.
-- **Integration, testing, and debugging were done by me:** 143 pass/fail
-  assertions across 25 categories, including tamper detection, backward
-  compatibility, and data-loss safety.
+The decisions are mine. The threat model, why a cascade instead of one
+cipher, where post-quantum actually matters and where it'd just be noise, the
+rules for never deleting your originals until the encrypted copy is fully
+verified, what to test. I worked those out and I can defend any of them.
 
-I am 14 and still learning the cryptography deeply — see the roadmap. External
-review is the entire reason this is public. The system-level decisions being
-mine while the implementation benefits from AI assistance is, I think, a
-reasonable and honest way to build software, and I would rather say that
-plainly than hide it. This is a real engineering project, not a vibe-coded
-toy.
+The implementation, wiring those primitives together, I generated with Claude
+Opus 4.7 from my own specs, on top of vetted libraries. Then the integration,
+the debugging, and the 143 pass/fail tests were me, including the mean ones:
+flipping a byte to check tampering is caught, opening older vault formats, and
+making sure a failed encryption can never delete your originals.
+
+I'm 14 and there's a lot of crypto I'm still actually learning (that's what
+the roadmap is). Getting people to review this is the whole reason it's
+public. The thinking is mine, the implementation had AI help, and saying
+which is which honestly is the point. This isn't a vibe-coded toy.
 
 ## Threat model
 
 | Threat | Protected? | How / caveat |
 |---|---|---|
-| Attacker steals only the `.foldervault` file | Yes | Content encrypted under Argon2id + cascade AEAD; useless without the password |
-| Offline password brute force | Mostly | Argon2id, 256 MiB–1 GiB, memory-hard. Real strength still depends on your password |
-| Tampering / reordering / truncation | Yes | Per-chunk AEAD + AAD binding (path, chunk index, count) + whole-vault hybrid signature |
-| Future quantum attacker (integrity) | Yes | ML-DSA-65 (FIPS 204) hybridised with Ed25519 |
-| Future quantum attacker (confidentiality) | Yes | Symmetric / password-based; no key exchange to harvest |
-| Attacker reads RAM while the app runs | No | Python cannot reliably wipe immutable `str` / library key bytes. Needs OS-level protection |
-| `.foldervault` lost or corrupted | No | The file *is* the data. Keep backups. Lost password = unrecoverable, by design |
-| SSD forensic recovery of the original | Partial | Wear-levelling means no software can guarantee secure erase. Encryption, not deletion, is the real protection |
+| Someone steals just the `.foldervault` file | Yes | Encrypted under Argon2id + cascade AEAD; useless without the password |
+| Offline password guessing | Mostly | Argon2id, 256 MiB–1 GiB, memory-hard. Still only as good as your password |
+| Tampering / reordering / truncation | Yes | Per-chunk AEAD bound to path+index+count, plus a whole-vault hybrid signature |
+| Quantum attacker, integrity | Yes | ML-DSA-65 (FIPS 204) alongside Ed25519 |
+| Quantum attacker, confidentiality | Yes | Symmetric and password-based; nothing to harvest now and crack later |
+| Someone reading RAM while it's running | No | Python can't reliably wipe key bytes from memory. That needs OS-level protection |
+| You lose the `.foldervault` file or the password | No | The file *is* the data, and there's no recovery. Keep backups |
+| SSD forensic recovery of the old plaintext | Partial | Wear-levelling beats overwrite-erase on any software. The encryption is the real protection, not the deletion |
 
 ## Roadmap
 
-- [x] English UI (Settings -> language; Korean stays the default)
-- [ ] External security audit / independent review
-- [ ] CLI mode (no GUI)
-- [ ] Reproducible, CryptoHack-style proofs for the container format
+- [x] English UI (Korean is still the default)
+- [ ] Someone who does crypto for a living actually reviewing this
+- [ ] A CLI so you don't need the GUI
+- [ ] Reproducible test vectors for the format
 
 ## Please tear it apart
 
-This is not production-ready and I am not claiming it is. If you find a
-weakness, a wrong assumption, or a place where I am fooling myself, please open
-an issue — see [SECURITY.md](SECURITY.md). That is how I learn, and it is the
-whole reason this is public.
+This is not production-ready and I'm not going to pretend it is. If you find a
+hole, a wrong assumption, or somewhere I'm fooling myself, open an issue (see
+[SECURITY.md](SECURITY.md) first). Breaking it is the single most useful thing
+you can do for me, and it's the entire reason this repo exists. Read
+[SECURITY.md](SECURITY.md) before you trust it with anything that matters,
+because I'm honest in there about what it can't do.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

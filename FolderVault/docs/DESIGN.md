@@ -148,6 +148,14 @@ callback error handling, index DoS cap, key-derivation sanity, constant-time
 verifier compare, keychain/DPAPI round-trip, and v2/v3/v4 compatibility.
 Current status: **143 PASS / 0 FAIL**.
 
+## UI language
+
+The UI ships in Korean and English (Settings -> language; restart to
+apply). It is a pure string-lookup layer over one central table, keyed
+by short stable IDs, with a Korean fallback for any unmapped key. It
+touches no crypto, I/O, or control flow, and Korean output is
+byte-identical to before — so the 143-test suite is unaffected.
+
 ## Known limits
 
 See [../SECURITY.md](../SECURITY.md). Short version: in-memory secrets cannot

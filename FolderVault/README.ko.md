@@ -20,7 +20,7 @@ English: [README.md](README.md)
 
 ```
 pip install -r requirements.txt
-python folder_vault.py      # GUI
+python folder_vault.py      # GUI (설정에서 한국어/English 전환)
 python test_vault.py        # 자가검증 143개(25개 카테고리)
 ```
 
@@ -32,7 +32,7 @@ python test_vault.py        # 자가검증 143개(25개 카테고리)
 | 보안 폴더 열기 | `.foldervault` 선택 → 비밀번호 입력 → 원하는 위치에 폴더 복원 |
 | 다시 잠그기 | 복원해서 작업한 폴더를 다시 암호화 |
 | 비밀번호 변경 | 기존 비밀번호 → 새 비밀번호로 재암호화 |
-| 설정 | 암호화 강도, 원본 삭제 방식 |
+| 설정 | 언어(한국어/English), 암호화 강도, 원본 삭제 방식 |
 
 폴더별로 다른 비밀번호를 설정할 수 있고, 그 폴더를 열려면 반드시 해당
 비밀번호를 입력해야 합니다.

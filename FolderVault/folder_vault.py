@@ -65,8 +65,10 @@ try:
 except Exception as exc:  # pragma: no cover
     raise SystemExit(
         "필수 라이브러리가 없습니다. 다음을 실행하세요:\n"
-        "    pip install cryptography argon2-cffi\n\n"
-        f"(원인: {exc})"
+        '    pip install "cryptography>=48.0.0" argon2-cffi\n\n'
+        "Required libraries are missing. Run:\n"
+        '    pip install "cryptography>=48.0.0" argon2-cffi\n\n'
+        f"(원인 / cause: {exc})"
     )
 
 # ---- GUI ------------------------------------------------------------------
@@ -105,6 +107,551 @@ KDF_PRESETS = {
 CONFIG_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / APP_NAME
 CONFIG_PATH = CONFIG_DIR / "config.json"
 REGISTRY_PATH = CONFIG_DIR / "registry.json"
+
+
+# ===========================================================================
+#  i18n — UI 문자열만 번역(로직 비변경). 기본 ko. 모르는 키/언어는 ko 폴백.
+# ===========================================================================
+LANG = "ko"
+
+
+def set_lang(code: str) -> None:
+    global LANG
+    LANG = "en" if code == "en" else "ko"
+
+
+def T(key: str, **kw) -> str:
+    """번역 문자열. kw 가 있으면 .format 적용. ko 값은 원문과 동일."""
+    pair = _TR.get(key)
+    s = (pair.get(LANG) or pair["ko"]) if pair else key
+    return s.format(**kw) if kw else s
+
+
+def T_other(key: str) -> str:
+    """현재 언어의 '반대' 언어 문자열(언어 전환 안내 배너용)."""
+    pair = _TR.get(key)
+    if not pair:
+        return key
+    other = "ko" if LANG == "en" else "en"
+    return pair.get(other) or pair["ko"]
+
+
+def T_lang(key: str, lang: str, **kw) -> str:
+    """특정 언어로 강제(언어 변경 직후 안내 등). 전역 LANG 불변."""
+    pair = _TR.get(key)
+    s = (pair.get(lang) or pair["ko"]) if pair else key
+    return s.format(**kw) if kw else s
+
+
+_TR: dict[str, dict[str, str]] = {
+    # ---- 공통 버튼/상태 ----
+    "btn.ok": {"ko": "확인", "en": "OK"},
+    "btn.cancel": {"ko": "취소", "en": "Cancel"},
+    "btn.save": {"ko": "저장", "en": "Save"},
+    "status.ready": {"ko": "준비됨", "en": "Ready"},
+    "status.error": {"ko": "오류 발생", "en": "Error occurred"},
+    # ---- 비밀번호 강도 ----
+    "pw.none": {"ko": "없음", "en": "none"},
+    "pw.s0": {"ko": "매우 약함", "en": "Very weak"},
+    "pw.s1": {"ko": "약함", "en": "Weak"},
+    "pw.s2": {"ko": "보통", "en": "Fair"},
+    "pw.s3": {"ko": "양호", "en": "Good"},
+    "pw.s4": {"ko": "강함", "en": "Strong"},
+    "pw.s5": {"ko": "매우 강함", "en": "Very strong"},
+    # ---- PasswordDialog ----
+    "pwd.label": {"ko": "비밀번호:", "en": "Password:"},
+    "pwd.show": {"ko": "표시", "en": "Show"},
+    "pwd.confirm": {"ko": "비밀번호 확인:", "en": "Confirm password:"},
+    "pwd.strength_dash": {"ko": "강도: -", "en": "Strength: -"},
+    "pwd.strength": {"ko": "강도: {label}", "en": "Strength: {label}"},
+    "pwd.enter": {"ko": "비밀번호를 입력하세요.",
+                  "en": "Please enter a password."},
+    "pwd.mismatch": {"ko": "비밀번호 확인이 일치하지 않습니다.",
+                     "en": "The password confirmation does not match."},
+    "pwd.min8": {"ko": "보안을 위해 8자 이상으로 설정하세요.",
+                 "en": "For security, use at least 8 characters."},
+    "pwd.weak_confirm": {
+        "ko": "비밀번호가 약합니다. 그래도 사용하시겠습니까?",
+        "en": "This password is weak. Use it anyway?"},
+    # ---- ProgressDialog ----
+    "prog.preparing": {"ko": "준비 중...", "en": "Preparing..."},
+    "prog.cancelling": {"ko": "취소 중... 잠시만 기다리세요.",
+                        "en": "Cancelling... please wait."},
+    # ---- 진행 메시지 ----
+    "prog.encrypting": {"ko": "암호화 중: {rp}", "en": "Encrypting: {rp}"},
+    "prog.verifying": {"ko": "검증 중: {rp}", "en": "Verifying: {rp}"},
+    "prog.restoring": {"ko": "복원 중: {rp}", "en": "Restoring: {rp}"},
+    "prog.reencrypting": {"ko": "재암호화 중: {rp}",
+                          "en": "Re-encrypting: {rp}"},
+    "prog.delete_original": {"ko": "원본 폴더 안전 삭제 중...",
+                             "en": "Securely deleting the original..."},
+    "prog.delete_vault": {"ko": "보안 파일 삭제 중...",
+                          "en": "Deleting the vault file..."},
+    "prog.reencrypt_nodisk": {
+        "ko": "재암호화 중 (평문은 디스크에 쓰지 않음)...",
+        "en": "Re-encrypting (no plaintext written to disk)..."},
+    # ---- 코어 예외 ----
+    "err.cancelled_op": {"ko": "사용자가 취소했습니다.",
+                         "en": "Cancelled by user."},
+    "err.links": {
+        "ko": "폴더 안에 심볼릭 링크/정션이 있어 안전하게 암호화할 수 "
+              "없습니다.\n이 항목들의 내용이 누락된 채 원본이 삭제되는 "
+              "사고를 막기 위해 작업을 중단합니다.\n\n해당 링크/정션을 "
+              "제거하거나 실제 폴더/파일로 교체한 뒤 다시 시도하세요:\n\n",
+        "en": "This folder contains symbolic links/junctions, so it "
+              "cannot be encrypted safely.\nTo prevent the original from "
+              "being deleted while their contents are silently missing, "
+              "the operation has been stopped.\n\nRemove these links/"
+              "junctions or replace them with real folders/files, then "
+              "try again:\n\n"},
+    "list.more": {"ko": "\n  …외 {n}개", "en": "\n  …and {n} more"},
+    "err.open_file": {"ko": "파일을 열 수 없습니다: {rp}\n{ex}",
+                      "en": "Cannot open file: {rp}\n{ex}"},
+    "err.vault_open": {"ko": "볼트 파일을 열 수 없습니다.",
+                       "en": "Cannot open the vault file."},
+    "err.vault_corrupt_fmt": {
+        "ko": "볼트 파일이 손상되었거나 형식이 올바르지 않습니다.",
+        "en": "The vault file is corrupted or has an invalid format."},
+    "err.vault_old_test": {
+        "ko": "이 볼트는 이전(테스트) 버전 형식이라 현재 버전과 "
+              "호환되지 않습니다.",
+        "en": "This vault uses an older (test) format that is not "
+              "compatible with the current version."},
+    "err.not_vault": {"ko": "올바른 볼트 파일이 아닙니다.",
+                      "en": "This is not a valid vault file."},
+    "err.header_corrupt": {"ko": "볼트 헤더가 손상되었습니다.",
+                           "en": "The vault header is corrupted."},
+    "err.idx_pos": {
+        "ko": "볼트 파일이 손상되었습니다(인덱스 위치 오류).",
+        "en": "The vault file is corrupted (bad index position)."},
+    "err.idx_size_bad": {
+        "ko": "볼트 파일이 손상되었습니다(인덱스 크기 비정상).",
+        "en": "The vault file is corrupted (abnormal index size)."},
+    "err.idx_size_mismatch": {
+        "ko": "볼트 파일이 손상되었습니다(인덱스 크기 불일치).",
+        "en": "The vault file is corrupted (index size mismatch)."},
+    "err.pw_or_corrupt": {
+        "ko": "비밀번호가 틀렸거나 볼트가 손상/변조되었습니다.",
+        "en": "Wrong password, or the vault is corrupted/tampered."},
+    "err.verifier": {"ko": "검증자 불일치 — 볼트 손상.",
+                     "en": "Verifier mismatch — vault corrupted."},
+    "err.index_corrupt": {"ko": "인덱스가 손상되었습니다.",
+                          "en": "The index is corrupted."},
+    "err.pmode": {
+        "ko": "볼트 파일이 손상되었습니다(페퍼 모드 오류).",
+        "en": "The vault file is corrupted (bad pepper mode)."},
+    "err.pw_or_tampered": {
+        "ko": "비밀번호가 틀렸거나 볼트가 변조/손상되었습니다.",
+        "en": "Wrong password, or the vault was tampered/corrupted."},
+    "err.pqc_len": {
+        "ko": "볼트 파일이 손상되었습니다(PQC 서명 길이 오류).",
+        "en": "The vault file is corrupted (bad PQC signature length)."},
+    "err.sig_pos": {
+        "ko": "볼트 파일이 손상되었습니다(서명 위치 오류).",
+        "en": "The vault file is corrupted (bad signature position)."},
+    "err.vault_corrupt": {"ko": "볼트 파일이 손상되었습니다.",
+                          "en": "The vault file is corrupted."},
+    "err.chunk_size": {"ko": "볼트 손상(청크 크기 오류).",
+                       "en": "Vault corrupted (bad chunk size)."},
+    "err.integrity": {
+        "ko": "무결성 검증 실패(변조/손상 의심).",
+        "en": "Integrity check failed (tampering/corruption suspected)."},
+    "err.keychain_required": {
+        "ko": "이 볼트는 OS 키체인 페퍼가 필요합니다 (생성한 Windows "
+              "계정·PC 전용).\n설정 → '페퍼 복원'으로 백업본을 가져오거나, "
+              "원래 환경에서 여세요.",
+        "en": "This vault requires the OS keychain pepper (only the "
+              "Windows account/PC that created it).\nUse Settings -> "
+              "'Restore pepper' to import a backup, or open it on the "
+              "original machine."},
+    "err.size_verify": {
+        "ko": "크기 검증 실패(데이터 불일치): {rp}",
+        "en": "Size verification failed (data mismatch): {rp}"},
+    "err.struct_verify": {
+        "ko": "구조 검증 실패(데이터 영역 크기 불일치).",
+        "en": "Structure verification failed (data region size "
+              "mismatch)."},
+    "err.restore_size": {
+        "ko": "복원 크기 불일치(데이터 손상): {rp}",
+        "en": "Restored size mismatch (data corruption): {rp}"},
+    "err.src_size": {
+        "ko": "원본 크기 불일치(데이터 손상): {rp}",
+        "en": "Source size mismatch (data corruption): {rp}"},
+    "err.struct_src": {
+        "ko": "구조 검증 실패(원본 데이터 영역 불일치).",
+        "en": "Structure verification failed (source data region "
+              "mismatch)."},
+    "name.restore_folder": {"ko": "복원폴더", "en": "RestoredFolder"},
+    # ---- 메인 창 ----
+    "app.title": {"ko": "FolderVault — 폴더 보안",
+                  "en": "FolderVault — Folder Security"},
+    "app.header": {"ko": "🔒 FolderVault", "en": "FolderVault"},
+    "app.subtitle": {"ko": "  폴더를 강력하게 암호화하여 보관합니다",
+                     "en": "  Strong encryption for your folders"},
+    "btn.settings": {"ko": "설정 / Settings", "en": "설정 / Settings"},
+    "hint.lang": {
+        "ko": "언어를 바꾸려면 오른쪽 위 '설정 / Settings' 버튼을 "
+              "누르세요.",
+        "en": "To change the language, click the 'Settings' button "
+              "at the top right."},
+    "col.name": {"ko": "이름", "en": "Name"},
+    "col.status": {"ko": "상태", "en": "Status"},
+    "col.size": {"ko": "크기", "en": "Size"},
+    "col.path": {"ko": "볼트 경로", "en": "Vault path"},
+    "btn.lock": {"ko": "➕ 폴더 잠그기", "en": "Lock Folder"},
+    "btn.open": {"ko": "🔓 보안 폴더 열기", "en": "Open Vault"},
+    "btn.relock": {"ko": "🔁 다시 잠그기", "en": "Re-lock"},
+    "btn.changepw": {"ko": "🔑 비밀번호 변경", "en": "Change Password"},
+    "btn.remove": {"ko": "✖ 목록에서 제거", "en": "Remove from List"},
+    "btn.refresh": {"ko": "🔄 새로고침", "en": "Refresh"},
+    "st.file_missing": {"ko": "⚠ 파일없음", "en": "Missing file"},
+    "st.unlocked": {"ko": "🔓 풀림 — 보안 안됨",
+                    "en": "Unlocked — not secure"},
+    "st.secured": {"ko": "🔒 보안됨", "en": "Secured"},
+    "err.unexpected": {
+        "ko": "예기치 못한 오류가 발생했습니다.\n\n{last}\n\n"
+              "자세한 내용:\n{path}",
+        "en": "An unexpected error occurred.\n\n{last}\n\n"
+              "Details:\n{path}"},
+    # ---- 페퍼/키체인 ----
+    "msg.keychain_win_only": {
+        "ko": "OS 키체인 모드는 Windows 에서만 지원됩니다. "
+              "앱 모드로 진행합니다.",
+        "en": "OS keychain mode is supported on Windows only. "
+              "Continuing in app mode."},
+    "msg.keychain_prep_fail": {
+        "ko": "키체인 페퍼를 준비하지 못했습니다.\n{e}\n"
+              "앱 모드로 진행합니다.",
+        "en": "Could not prepare the keychain pepper.\n{e}\n"
+              "Continuing in app mode."},
+    "msg.keychain_created": {
+        "ko": "⚠ OS 키체인 페퍼가 새로 생성되었습니다.\n\n"
+              "이 모드로 만든 볼트는 '이 Windows 계정·이 PC'에서만 "
+              "열립니다. OS 재설치·계정 삭제·다른 PC 에서는 올바른 "
+              "비밀번호로도 복구 불가합니다.\n\n"
+              "지금 '설정 → 페퍼 백업'으로 반드시 백업하세요.",
+        "en": "Warning: a new OS keychain pepper was created.\n\n"
+              "Vaults made in this mode open only on THIS Windows "
+              "account and PC. After an OS reinstall, account deletion, "
+              "or on another PC, they cannot be recovered even with the "
+              "correct password.\n\nBack it up now via "
+              "'Settings -> Back up pepper'."},
+    # ---- 폴더 검사/덮어쓰기 ----
+    "msg.folder_inaccessible": {
+        "ko": "폴더에 접근할 수 없습니다:\n{folder}\n\n{e}",
+        "en": "Cannot access the folder:\n{folder}\n\n{e}"},
+    "msg.empty_folder": {"ko": "빈 폴더입니다.",
+                         "en": "The folder is empty."},
+    "msg.overwrite": {
+        "ko": "이미 존재하는 파일입니다. 덮어쓰시겠습니까?\n\n{path}\n\n"
+              "(다른 볼트라면 그 데이터가 영구히 사라집니다.)",
+        "en": "This file already exists. Overwrite it?\n\n{path}\n\n"
+              "(If it is a different vault, its data is lost forever.)"},
+    # ---- 원본 처리 정책 ----
+    "msg.original_policy": {
+        "ko": "원본 폴더를 어떻게 처리할까요?\n\n대상: {folder}\n\n"
+              "[예]    암호화 후 원본을 영구 삭제\n"
+              "         → 진짜 보안 (평문 사본이 남지 않음)\n\n"
+              "[아니오] 원본을 그대로 두고 암호본만 생성\n"
+              "         → 처음 동작을 시험할 때 권장\n"
+              "         (평문 원본이 남으므로 보안 효과는 없음)\n\n"
+              "[취소]   작업 중단",
+        "en": "What should happen to the original folder?\n\n"
+              "Target: {folder}\n\n"
+              "[Yes]    Encrypt, then permanently delete the original\n"
+              "         -> real security (no plaintext copy remains)\n\n"
+              "[No]     Keep the original, only create the encrypted "
+              "copy\n         -> recommended for a first test run\n"
+              "         (no security: plaintext original remains)\n\n"
+              "[Cancel] Stop"},
+    "msg.original_final": {
+        "ko": "⚠ 마지막 확인 — 되돌릴 수 없습니다\n\n"
+              "다음 폴더가 영구 삭제됩니다:\n{folder}\n\n"
+              "• 비밀번호를 잊으면 복구 불가\n"
+              "• .foldervault 파일이 없으면 복구 불가\n\n"
+              "암호화는 삭제 '전에' 검증되며, 검증에 실패하면\n"
+              "원본은 삭제되지 않습니다.\n\n정말 진행하시겠습니까?",
+        "en": "Warning: final confirmation — this cannot be undone\n\n"
+              "The following folder will be permanently deleted:\n"
+              "{folder}\n\n"
+              "- Unrecoverable if you forget the password\n"
+              "- Unrecoverable without the .foldervault file\n\n"
+              "Encryption is verified BEFORE deletion; if verification "
+              "fails, the original is not deleted.\n\nProceed?"},
+    # ---- 잠그기 흐름 ----
+    "title.lock_folder": {"ko": "암호화할 폴더 선택",
+                          "en": "Select a folder to encrypt"},
+    "title.save_vault": {
+        "ko": "보안 파일(.foldervault) 저장 위치",
+        "en": "Where to save the vault (.foldervault)"},
+    "ft.all_files": {"ko": "모든 파일", "en": "All files"},
+    "msg.vault_inside": {
+        "ko": "보안 파일(.foldervault)을 암호화 대상 폴더 '안에' 저장할 "
+              "수 없습니다.\n\n암호화 후 그 폴더가 삭제될 때 보안 파일까지 "
+              "함께 사라져 데이터를 영구히 잃습니다.\n\n폴더 바깥(상위 "
+              "폴더나 다른 드라이브)을 선택하세요.",
+        "en": "The vault (.foldervault) cannot be saved INSIDE the "
+              "folder being encrypted.\n\nWhen that folder is deleted "
+              "after encryption, the vault would be deleted with it and "
+              "the data lost forever.\n\nChoose a location outside the "
+              "folder (a parent folder or another drive)."},
+    "title.set_new_pw": {"ko": "새 비밀번호 설정",
+                         "en": "Set a new password"},
+    "info.new_pw": {
+        "ko": "이 폴더를 열 때 사용할 비밀번호입니다.\n"
+              "⚠ 비밀번호를 잊으면 복구가 불가능합니다. 안전하게 "
+              "보관하세요.",
+        "en": "This is the password used to open this folder.\n"
+              "Warning: if you forget it, recovery is impossible. "
+              "Keep it safe."},
+    "task.encrypt": {"ko": "폴더 암호화", "en": "Encrypting folder"},
+    "task.decrypt": {"ko": "폴더 복호화", "en": "Decrypting folder"},
+    "task.changepw": {"ko": "비밀번호 변경", "en": "Changing password"},
+    "status.encrypting": {"ko": "암호화 중...", "en": "Encrypting..."},
+    "status.done_keep": {"ko": "완료(원본 유지): '{name}'",
+                         "en": "Done (original kept): '{name}'"},
+    "msg.done_keep": {
+        "ko": "암호화가 완료되었습니다. (원본 유지)\n\n"
+              "• 보안 파일: {vault}\n• 원본 폴더는 그대로 있습니다.\n\n"
+              "동작을 확인했다면, 실제 보안을 위해 원본을 직접 삭제하거나"
+              " '다시 잠그기'를 사용하세요.\n"
+              "(원본이 남아 있는 동안에는 보안 효과가 없습니다.)",
+        "en": "Encryption complete. (Original kept)\n\n"
+              "- Vault file: {vault}\n- The original folder is "
+              "untouched.\n\nOnce you have verified it works, delete "
+              "the original yourself or use 'Re-lock' for real "
+              "security.\n(There is no security while the original "
+              "remains.)"},
+    "status.partial_del": {
+        "ko": "주의: 원본 일부 삭제 실패 — 평문 잔존",
+        "en": "Warning: some originals not deleted — plaintext remains"},
+    "msg.partial_del": {
+        "ko": "암호화는 완료됐고 보안 파일은 정상입니다.\n"
+              "그러나 원본 일부를 삭제하지 못했습니다(다른 프로그램이 "
+              "사용 중이거나 권한 문제).\n아래 항목은 평문으로 남아 있어 "
+              "보안되지 않습니다 — 수동으로 삭제하세요:\n\n{shown}{more}"
+              "\n\n• 보안 파일: {vault}\n  (반드시 백업하세요.)",
+        "en": "Encryption completed and the vault file is fine.\n"
+              "However, some originals could not be deleted (in use by "
+              "another program, or a permission issue).\nThe items "
+              "below remain as plaintext and are NOT secured — delete "
+              "them manually:\n\n{shown}{more}\n\n- Vault file: {vault}"
+              "\n  (Be sure to back it up.)"},
+    "status.done_remain": {"ko": "완료: '{name}' (폴더 잔존)",
+                           "en": "Done: '{name}' (folder remains)"},
+    "msg.done_remain": {
+        "ko": "폴더가 안전하게 암호화되고 원본 파일들은 삭제되었습니다."
+              "\n\n다만 잠금 이후 새로 생긴 파일이 있어 폴더가 남아 "
+              "있습니다(그 파일들은 안전을 위해 건드리지 않았습니다):\n"
+              "{folder}\n확인 후 직접 정리하세요.\n\n"
+              "• 보안 파일: {vault}\n  (반드시 백업하세요.)",
+        "en": "The folder was encrypted securely and the original "
+              "files were deleted.\n\nHowever, files created after the "
+              "lock scan remain, so the folder still exists (those "
+              "files were left untouched for safety):\n{folder}\n"
+              "Review and clean up yourself.\n\n- Vault file: {vault}"
+              "\n  (Be sure to back it up.)"},
+    "status.done_lock": {
+        "ko": "완료: '{name}' 잠금 ({entries}개 항목)",
+        "en": "Done: '{name}' locked ({entries} items)"},
+    "msg.done_lock": {
+        "ko": "폴더가 안전하게 암호화되었습니다.\n\n"
+              "• 보안 파일: {vault}\n• 원본 폴더는 삭제되었습니다.\n\n"
+              "이 .foldervault 파일을 반드시 백업하세요.",
+        "en": "The folder was encrypted securely.\n\n"
+              "- Vault file: {vault}\n- The original folder was "
+              "deleted.\n\nBe sure to back up this .foldervault file."},
+    # ---- 열기 흐름 ----
+    "title.choose_vault": {"ko": "보안 파일 선택",
+                           "en": "Select a vault file"},
+    "title.enter_pw": {"ko": "비밀번호 입력", "en": "Enter password"},
+    "info.vault": {"ko": "볼트: {name}", "en": "Vault: {name}"},
+    "status.checking_pw": {"ko": "비밀번호 확인 중...",
+                           "en": "Verifying password..."},
+    "status.open_fail": {"ko": "열기 실패", "en": "Open failed"},
+    "title.restore_where": {
+        "ko": "'{name}' 폴더를 복원할 위치 선택",
+        "en": "Choose where to restore the '{name}' folder"},
+    "msg.same_name": {
+        "ko": "이미 같은 이름의 폴더가 있습니다:\n{final}",
+        "en": "A folder with the same name already exists:\n{final}"},
+    "msg.keep_vault": {
+        "ko": "복원 후 보안 파일(.foldervault)을 유지할까요?\n\n"
+              "[예] 보안 파일 유지 (권장 — 백업으로 보관)\n"
+              "[아니오] 복원 후 보안 파일 삭제\n[취소] 작업 중단",
+        "en": "Keep the vault (.foldervault) after restoring?\n\n"
+              "[Yes] Keep the vault (recommended — keep as a backup)\n"
+              "[No] Delete the vault after restoring\n[Cancel] Stop"},
+    "status.decrypting": {"ko": "복호화 중...", "en": "Decrypting..."},
+    "status.restore_done_del": {
+        "ko": "복원 완료(보안 파일 삭제): {out}",
+        "en": "Restore complete (vault deleted): {out}"},
+    "msg.restore_done_del": {
+        "ko": "폴더가 복원되었고 보안 파일은 삭제되었습니다:\n\n{out}",
+        "en": "The folder was restored and the vault was deleted:"
+              "\n\n{out}"},
+    "status.restore_done_delfail": {
+        "ko": "복원 완료 — 보안 파일 삭제 실패",
+        "en": "Restore complete — vault deletion failed"},
+    "msg.restore_done_delfail": {
+        "ko": "폴더는 복원되었습니다:\n{out}\n\n그러나 보안 파일을 "
+              "삭제하지 못했습니다(다른 프로그램이 사용 중이거나 권한 "
+              "문제). 파일이 그대로 남아 목록에 유지됩니다:\n{vault}\n"
+              "필요하면 직접 삭제하세요.",
+        "en": "The folder was restored:\n{out}\n\nHowever, the vault "
+              "file could not be deleted (in use by another program, "
+              "or a permission issue). It remains and stays in the "
+              "list:\n{vault}\nDelete it yourself if needed."},
+    "status.restore_done": {"ko": "복원 완료: {out}",
+                            "en": "Restore complete: {out}"},
+    "msg.restore_done": {
+        "ko": "폴더가 복원되었습니다:\n\n{out}\n\n이 폴더가 디스크에 "
+              "남아 있는 동안에는 목록 상태가\n'🔓 풀림 — 보안 안됨'으로 "
+              "표시됩니다.\n다시 안전하게 하려면 '다시 잠그기'를 "
+              "사용하세요.",
+        "en": "The folder was restored:\n\n{out}\n\nWhile this folder "
+              "remains on disk, its list status shows\n'Unlocked — not "
+              "secure'.\nUse 'Re-lock' to secure it again."},
+    # ---- 다시 잠그기 ----
+    "title.relock_folder": {
+        "ko": "다시 잠글 (이미 복원된) 폴더 선택",
+        "en": "Select the (already restored) folder to re-lock"},
+    "title.save_vault2": {"ko": "보안 파일 저장 위치",
+                          "en": "Where to save the vault file"},
+    "msg.vault_inside2": {
+        "ko": "보안 파일을 암호화 대상 폴더 '안에' 저장할 수 없습니다.\n"
+              "그 폴더 삭제 시 보안 파일까지 사라져 데이터를 잃습니다.\n"
+              "폴더 바깥을 선택하세요.",
+        "en": "The vault cannot be saved INSIDE the folder being "
+              "encrypted.\nDeleting that folder would delete the vault "
+              "too and lose the data.\nChoose a location outside the "
+              "folder."},
+    "title.set_pw": {"ko": "비밀번호 설정", "en": "Set password"},
+    "info.relock": {"ko": "이 폴더를 다시 암호화합니다.",
+                    "en": "This will re-encrypt this folder."},
+    # ---- 비밀번호 변경 ----
+    "title.cur_pw": {"ko": "현재 비밀번호", "en": "Current password"},
+    "title.new_pw": {"ko": "새 비밀번호", "en": "New password"},
+    "status.pw_changed": {"ko": "비밀번호가 변경되었습니다.",
+                          "en": "Password changed."},
+    "msg.pw_changed": {"ko": "비밀번호가 변경되었습니다.",
+                       "en": "The password has been changed."},
+    # ---- 목록에서 제거 ----
+    "msg.select_item": {"ko": "목록에서 항목을 선택하세요.",
+                        "en": "Please select an item from the list."},
+    "msg.remove_confirm": {
+        "ko": "목록에서만 제거합니다. (실제 .foldervault 파일은 삭제되지 "
+              "않습니다.)\n계속할까요?",
+        "en": "This only removes it from the list. (The actual "
+              ".foldervault file is not deleted.)\nContinue?"},
+    "status.removed": {"ko": "목록에서 제거됨", "en": "Removed from list"},
+    # ---- 백그라운드 작업 ----
+    "cancel.status": {"ko": "취소되었습니다.", "en": "Cancelled."},
+    "cancel.msg": {"ko": "작업이 취소되었습니다.",
+                   "en": "The operation was cancelled."},
+    "err.generic": {"ko": "오류가 발생했습니다:\n\n{e}",
+                    "en": "An error occurred:\n\n{e}"},
+    # ---- 설정 ----
+    "title.settings": {"ko": "설정", "en": "Settings"},
+    "set.lang_title": {"ko": "언어 / Language", "en": "언어 / Language"},
+    "set.lang_ko": {"ko": "한국어", "en": "한국어"},
+    "set.lang_en": {"ko": "English", "en": "English"},
+    "msg.lang_restart": {
+        "ko": "언어 설정이 저장되었습니다. 프로그램을 다시 시작하면 "
+              "적용됩니다.",
+        "en": "Language saved. Restart the program to apply it."},
+    "set.kdf_title": {"ko": "암호화 강도 (Argon2id)",
+                      "en": "Encryption strength (Argon2id)"},
+    "set.kdf_std": {
+        "ko": "표준 — 256MB 메모리 (권장, 대부분 환경에 적합)",
+        "en": "Standard — 256 MB memory (recommended, fits most "
+              "systems)"},
+    "set.kdf_high": {"ko": "강력 — 512MB 메모리 (느리지만 더 강력)",
+                     "en": "High — 512 MB memory (slower but stronger)"},
+    "set.kdf_para": {
+        "ko": "편집증 — 1GB 메모리 (최강, 저사양 PC엔 무거움)",
+        "en": "Paranoid — 1 GB memory (strongest; heavy on low-end "
+              "PCs)"},
+    "set.del_title": {"ko": "원본 삭제 방식",
+                      "en": "Original deletion method"},
+    "set.del_secure": {
+        "ko": "안전 삭제(무작위 덮어쓰기 후 삭제)",
+        "en": "Secure delete (random overwrite, then delete)"},
+    "set.del_note": {
+        "ko": "※ SSD는 하드웨어 특성상 덮어쓰기로 흔적을 100% 지울 수 "
+              "없습니다. 데이터 보호는 '암호화' 자체로 보장됩니다.",
+        "en": "Note: on SSDs, overwriting cannot fully erase traces "
+              "(hardware limitation). Data protection comes from the "
+              "encryption itself."},
+    "set.pep_title": {"ko": "페퍼 모드 (KDF 추가 비밀)",
+                      "en": "Pepper mode (extra KDF secret)"},
+    "set.pep_app": {
+        "ko": "앱 내장 — 이식 가능 (어느 PC에서나 비번만으로 열림)",
+        "en": "App-embedded — portable (opens on any PC with just the "
+              "password)"},
+    "set.pep_kc": {
+        "ko": "OS 키체인 — 이 PC·계정 전용 (페퍼가 진짜 비밀이 됨)",
+        "en": "OS keychain — this PC/account only (the pepper becomes "
+              "a real secret)"},
+    "set.pep_warn": {
+        "ko": "⚠ 키체인 모드로 만든 볼트는 '이 Windows 계정·이 PC'"
+              "에서만 열립니다. OS 재설치·다른 PC 에서는 올바른 "
+              "비밀번호로도 복구 불가 — 반드시 아래로 백업하세요.",
+        "en": "Warning: vaults made in keychain mode open only on THIS "
+              "Windows account/PC. After an OS reinstall or on another "
+              "PC, recovery is impossible even with the correct "
+              "password — back it up below."},
+    "set.kc_win_only": {"ko": "(키체인 모드는 Windows 에서만 동작)",
+                        "en": "(Keychain mode works on Windows only)"},
+    "msg.no_pep_backup": {
+        "ko": "백업할 키체인 페퍼가 없습니다.\n키체인 모드로 폴더를 한 "
+              "번 잠그면 생성됩니다.",
+        "en": "There is no keychain pepper to back up.\nIt is created "
+              "once you lock a folder in keychain mode."},
+    "title.pep_backup": {
+        "ko": "페퍼 백업 저장(이 파일=비밀, 안전히 보관)",
+        "en": "Save pepper backup (this file is the secret — store "
+              "safely)"},
+    "ft.pepper": {"ko": "FolderVault pepper", "en": "FolderVault pepper"},
+    "msg.pep_backed": {
+        "ko": "페퍼를 백업했습니다.\n\n이 파일은 그 자체가 비밀입니다 — "
+              "볼트와 '다른 곳'(오프라인 등)에 안전히 보관하세요. 분실 "
+              "시 키체인 볼트는 복구 불가합니다.",
+        "en": "Pepper backed up.\n\nThis file IS the secret — store it "
+              "safely somewhere separate from the vault (offline, "
+              "etc.). If lost, keychain vaults cannot be recovered."},
+    "err.backup_fail": {"ko": "백업 실패:\n{e}",
+                        "en": "Backup failed:\n{e}"},
+    "msg.win_only": {"ko": "Windows 에서만 가능합니다.",
+                     "en": "Available on Windows only."},
+    "title.pep_restore": {"ko": "페퍼 백업 파일 선택",
+                          "en": "Select a pepper backup file"},
+    "err.pep_badfmt": {"ko": "형식이 올바르지 않습니다(32바이트 아님).",
+                       "en": "Invalid format (not 32 bytes)."},
+    "msg.pep_restored": {
+        "ko": "페퍼를 복원했습니다. 이제 이 PC·계정에서 해당 키체인 "
+              "볼트를 열 수 있습니다.",
+        "en": "Pepper restored. You can now open the corresponding "
+              "keychain vaults on this PC/account."},
+    "err.restore_fail": {"ko": "복원 실패:\n{e}",
+                         "en": "Restore failed:\n{e}"},
+    "btn.pep_backup": {"ko": "페퍼 백업(내보내기)",
+                       "en": "Back up pepper (export)"},
+    "btn.pep_restore": {"ko": "페퍼 복원(가져오기)",
+                        "en": "Restore pepper (import)"},
+    "status.settings_saved": {"ko": "설정이 저장되었습니다.",
+                              "en": "Settings saved."},
+    # ---- 시작 크래시 ----
+    "msg.start_error": {
+        "ko": "프로그램 시작 중 오류가 발생했습니다.\n\n{line}\n\n"
+              "자세한 내용:\n{log}",
+        "en": "An error occurred while starting the program.\n\n"
+              "{line}\n\nDetails:\n{log}"},
+    "log.fail": {"ko": "(로그 기록 실패)",
+                 "en": "(failed to write log)"},
+    "err.dpapi": {"ko": "{fn} 실패(err={code})",
+                  "en": "{fn} failed (err={code})"},
+}
 
 
 # ===========================================================================
@@ -348,7 +895,7 @@ def _readn(f, n: int) -> bytes:
     b = f.read(n)
     if len(b) != n:
         raise WrongPasswordOrCorrupt(
-            "볼트 파일이 손상되었거나 형식이 올바르지 않습니다.")
+            T("err.vault_corrupt_fmt"))
     return b
 
 
@@ -356,14 +903,14 @@ def _u32(b: bytes) -> int:
     try:
         return struct.unpack(">I", b)[0]
     except struct.error:
-        raise WrongPasswordOrCorrupt("볼트 파일이 손상되었습니다.")
+        raise WrongPasswordOrCorrupt(T("err.vault_corrupt"))
 
 
 def _u64(b: bytes) -> int:
     try:
         return struct.unpack(">Q", b)[0]
     except struct.error:
-        raise WrongPasswordOrCorrupt("볼트 파일이 손상되었습니다.")
+        raise WrongPasswordOrCorrupt(T("err.vault_corrupt"))
 
 
 def _verifier_ok(header) -> bool:
@@ -437,7 +984,8 @@ def _dpapi(func_name: str, data: bytes) -> bytes:
     ok = fn(ctypes.byref(in_blob), None, ctypes.byref(ent_blob),
             None, None, _CRYPTPROTECT_UI_FORBIDDEN, ctypes.byref(out))
     if not ok:
-        raise OSError(f"{func_name} 실패(err={ctypes.GetLastError()})")
+        raise OSError(T("err.dpapi", fn=func_name,
+                        code=ctypes.GetLastError()))
     try:
         return ctypes.string_at(out.pbData, out.cbData)
     finally:
@@ -565,14 +1113,10 @@ class Vault:
         links = scan_reparse_points(folder)
         if links:
             shown = "\n".join("  - " + x for x in links[:10])
-            more = (f"\n  …외 {len(links) - 10}개"
+            more = (T("list.more", n=len(links) - 10)
                     if len(links) > 10 else "")
             raise UnsupportedLinkError(
-                "폴더 안에 심볼릭 링크/정션이 있어 안전하게 암호화할 수 "
-                "없습니다.\n이 항목들의 내용이 누락된 채 원본이 삭제되는 "
-                "사고를 막기 위해 작업을 중단합니다.\n\n해당 링크/정션을 "
-                "제거하거나 실제 폴더/파일로 교체한 뒤 다시 시도하세요:\n\n"
-                + shown + more)
+                T("err.links") + shown + more)
         pmode = 1 if (pmode == 1 and user_pepper) else 0
         salt = os.urandom(16)
         root = derive_root_v3(password, salt, kdf,
@@ -631,7 +1175,7 @@ class Vault:
                 # 2) 데이터: 실제바이트 + Padmé 패딩을 청크 캐스케이드 암호화
                 for e in entries:
                     if cancel and cancel():
-                        raise InterruptedError("사용자가 취소했습니다.")
+                        raise InterruptedError(T("err.cancelled_op"))
                     if e["t"] != "f":
                         continue
                     rp = e["p"]
@@ -642,7 +1186,7 @@ class Vault:
                     try:
                         fh = open(_lp(src), "rb")
                     except OSError as ex:
-                        raise IOError(f"파일을 열 수 없습니다: {rp}\n{ex}")
+                        raise IOError(T("err.open_file", rp=rp, ex=ex))
                     n = 0
                     fsize = 0
                     with fh:
@@ -663,7 +1207,7 @@ class Vault:
                             done_bytes += len(data)
                             if progress:
                                 progress(done_bytes, est_total,
-                                         f"암호화 중: {rp}")
+                                         T("prog.encrypting", rp=rp))
                     # Padmé: 실제 크기를 버킷으로 올려 개별 파일 크기 은닉
                     ps = padme(fsize)
                     pad_rem = ps - fsize
@@ -741,10 +1285,10 @@ class Vault:
         try:
             filesize = os.path.getsize(_lp(self.path))
         except OSError:
-            raise WrongPasswordOrCorrupt("볼트 파일을 열 수 없습니다.")
+            raise WrongPasswordOrCorrupt(T("err.vault_open"))
         if filesize < 8:
             raise WrongPasswordOrCorrupt(
-                "볼트 파일이 손상되었거나 형식이 올바르지 않습니다.")
+                T("err.vault_corrupt_fmt"))
         with open(_lp(self.path), "rb") as f:
             magic = f.read(8)
         if magic == MAGIC4:
@@ -755,15 +1299,14 @@ class Vault:
             return self._open_v2(password, filesize)
         if magic[:7] == MAGIC_PREFIX:
             raise WrongPasswordOrCorrupt(
-                "이 볼트는 이전(테스트) 버전 형식이라 현재 버전과 "
-                "호환되지 않습니다.")
-        raise WrongPasswordOrCorrupt("올바른 볼트 파일이 아닙니다.")
+                T("err.vault_old_test"))
+        raise WrongPasswordOrCorrupt(T("err.not_vault"))
 
     # ---- v2 (읽기 호환 전용) -------------------------------------------
     def _open_v2(self, password: str, filesize: int):
         if filesize < PREFIX_FIXED + 16 + 8:
             raise WrongPasswordOrCorrupt(
-                "볼트 파일이 손상되었거나 형식이 올바르지 않습니다.")
+                T("err.vault_corrupt_fmt"))
         with open(_lp(self.path), "rb") as f:
             f.seek(8)
             salt = _readn(f, 16)
@@ -773,7 +1316,7 @@ class Vault:
             hn = _readn(f, 12)
             hlen = _u32(_readn(f, 4))
             if hlen <= 0 or hlen > MAX_HEADER:
-                raise WrongPasswordOrCorrupt("볼트 헤더가 손상되었습니다.")
+                raise WrongPasswordOrCorrupt(T("err.header_corrupt"))
             hct = _readn(f, hlen)
             data_start = f.tell()
             kdf = {"time_cost": t_cost, "memory_cost": m_cost,
@@ -782,16 +1325,16 @@ class Vault:
             index_off = _u64(_readn(f, 8))
             if not (data_start <= index_off <= filesize - 8):
                 raise WrongPasswordOrCorrupt(
-                    "볼트 파일이 손상되었습니다(인덱스 위치 오류).")
+                    T("err.idx_pos"))
             f.seek(index_off)
             in_ = _readn(f, 12)
             ilen = _u64(_readn(f, 8))
             if ilen <= 0 or ilen > MAX_INDEX:
                 raise WrongPasswordOrCorrupt(
-                    "볼트 파일이 손상되었습니다(인덱스 크기 비정상).")
+                    T("err.idx_size_bad"))
             if index_off + 12 + 8 + ilen != filesize - 8:
                 raise WrongPasswordOrCorrupt(
-                    "볼트 파일이 손상되었습니다(인덱스 크기 불일치).")
+                    T("err.idx_size_mismatch"))
             ict = _readn(f, ilen)
         master = derive_master_key(password, salt, kdf)
         try:
@@ -801,11 +1344,11 @@ class Vault:
                 subkey(master, HKDF_INDEX), in_, ict, MAGIC + hn))
         except Exception:
             raise WrongPasswordOrCorrupt(
-                "비밀번호가 틀렸거나 볼트가 손상/변조되었습니다.")
+                T("err.pw_or_corrupt"))
         if not _verifier_ok(header):
-            raise WrongPasswordOrCorrupt("검증자 불일치 — 볼트 손상.")
+            raise WrongPasswordOrCorrupt(T("err.verifier"))
         if not isinstance(index, dict) or "entries" not in index:
-            raise WrongPasswordOrCorrupt("인덱스가 손상되었습니다.")
+            raise WrongPasswordOrCorrupt(T("err.index_corrupt"))
         return master, kdf, header, index, data_start, index_off, 2
 
     # ---- v3 (캐스케이드 + 페퍼 + 전체 서명) ----------------------------
@@ -815,7 +1358,7 @@ class Vault:
                     + 12 + 12 + 8 + 8 + SIG_LEN)
         if filesize < min_size:
             raise WrongPasswordOrCorrupt(
-                "볼트 파일이 손상되었거나 형식이 올바르지 않습니다.")
+                T("err.vault_corrupt_fmt"))
         signed_end = filesize - SIG_LEN
         with open(_lp(self.path), "rb") as f:
             f.seek(8)
@@ -826,12 +1369,12 @@ class Vault:
             pmode = _readn(f, 1)[0]
             if pmode not in (0, 1):
                 raise WrongPasswordOrCorrupt(
-                    "볼트 파일이 손상되었습니다(페퍼 모드 오류).")
+                    T("err.pmode"))
             nAh = _readn(f, 12)
             nCh = _readn(f, 12)
             hlen = _u32(_readn(f, 4))
             if hlen <= 0 or hlen > MAX_HEADER:
-                raise WrongPasswordOrCorrupt("볼트 헤더가 손상되었습니다.")
+                raise WrongPasswordOrCorrupt(T("err.header_corrupt"))
             hct = _readn(f, hlen)
             data_start = f.tell()
             kdf = {"time_cost": t_cost, "memory_cost": m_cost,
@@ -840,17 +1383,17 @@ class Vault:
             index_off = _u64(_readn(f, 8))
             if not (data_start <= index_off <= signed_end - 8):
                 raise WrongPasswordOrCorrupt(
-                    "볼트 파일이 손상되었습니다(인덱스 위치 오류).")
+                    T("err.idx_pos"))
             f.seek(index_off)
             nAi = _readn(f, 12)
             nCi = _readn(f, 12)
             ilen = _u64(_readn(f, 8))
             if ilen <= 0 or ilen > MAX_INDEX:
                 raise WrongPasswordOrCorrupt(
-                    "볼트 파일이 손상되었습니다(인덱스 크기 비정상).")
+                    T("err.idx_size_bad"))
             if index_off + 12 + 12 + 8 + ilen != signed_end - 8:
                 raise WrongPasswordOrCorrupt(
-                    "볼트 파일이 손상되었습니다(인덱스 크기 불일치).")
+                    T("err.idx_size_mismatch"))
             ict = _readn(f, ilen)
             f.seek(signed_end)
             sig = _readn(f, SIG_LEN)
@@ -858,9 +1401,7 @@ class Vault:
 
         if pmode == 1 and not user_pepper:
             raise KeychainPepperRequired(
-                "이 볼트는 OS 키체인 페퍼가 필요합니다 (생성한 Windows "
-                "계정·PC 전용).\n설정 → '페퍼 복원'으로 백업본을 가져오거나, "
-                "원래 환경에서 여세요.")
+                T("err.keychain_required"))
         root = derive_root_v3(password, salt, kdf,
                               user_pepper if pmode == 1 else None)
         # 1) 전체 파일 Ed25519 서명 검증(비번 오류·변조를 한 번에 차단)
@@ -868,7 +1409,7 @@ class Vault:
             sign_key_v3(root).public_key().verify(sig, digest)
         except InvalidSignature:
             raise WrongPasswordOrCorrupt(
-                "비밀번호가 틀렸거나 볼트가 변조/손상되었습니다.")
+                T("err.pw_or_tampered"))
         # 2) 헤더/인덱스 캐스케이드 복호화
         try:
             header = json.loads(casc_decrypt(
@@ -879,11 +1420,11 @@ class Vault:
                 nAi, nCi, ict, MAGIC3 + nAh + nCh))
         except Exception:
             raise WrongPasswordOrCorrupt(
-                "비밀번호가 틀렸거나 볼트가 손상/변조되었습니다.")
+                T("err.pw_or_corrupt"))
         if not _verifier_ok(header):
-            raise WrongPasswordOrCorrupt("검증자 불일치 — 볼트 손상.")
+            raise WrongPasswordOrCorrupt(T("err.verifier"))
         if not isinstance(index, dict) or "entries" not in index:
-            raise WrongPasswordOrCorrupt("인덱스가 손상되었습니다.")
+            raise WrongPasswordOrCorrupt(T("err.index_corrupt"))
         return root, kdf, header, index, data_start, index_off, 3
 
     # ---- v4 (캐스케이드 + 페퍼 + 하이브리드 Ed25519+ML-DSA 서명) -------
@@ -893,17 +1434,17 @@ class Vault:
                     + 12 + 12 + 8 + 8 + SIG_LEN + 4 + 1)
         if filesize < min_size:
             raise WrongPasswordOrCorrupt(
-                "볼트 파일이 손상되었거나 형식이 올바르지 않습니다.")
+                T("err.vault_corrupt_fmt"))
         with open(_lp(self.path), "rb") as f:
             f.seek(filesize - 4)
             ml_len = _u32(_readn(f, 4))
             if ml_len <= 0 or ml_len > MLDSA_MAX:
                 raise WrongPasswordOrCorrupt(
-                    "볼트 파일이 손상되었습니다(PQC 서명 길이 오류).")
+                    T("err.pqc_len"))
             sig_start = filesize - 4 - ml_len - SIG_LEN
             if sig_start < (8 + 16 + 12 + 1 + 12 + 12 + 4):
                 raise WrongPasswordOrCorrupt(
-                    "볼트 파일이 손상되었습니다(서명 위치 오류).")
+                    T("err.sig_pos"))
             f.seek(8)
             salt = _readn(f, 16)
             t_cost = _u32(_readn(f, 4))
@@ -912,12 +1453,12 @@ class Vault:
             pmode = _readn(f, 1)[0]
             if pmode not in (0, 1):
                 raise WrongPasswordOrCorrupt(
-                    "볼트 파일이 손상되었습니다(페퍼 모드 오류).")
+                    T("err.pmode"))
             nAh = _readn(f, 12)
             nCh = _readn(f, 12)
             hlen = _u32(_readn(f, 4))
             if hlen <= 0 or hlen > MAX_HEADER:
-                raise WrongPasswordOrCorrupt("볼트 헤더가 손상되었습니다.")
+                raise WrongPasswordOrCorrupt(T("err.header_corrupt"))
             hct = _readn(f, hlen)
             data_start = f.tell()
             kdf = {"time_cost": t_cost, "memory_cost": m_cost,
@@ -926,17 +1467,17 @@ class Vault:
             index_off = _u64(_readn(f, 8))
             if not (data_start <= index_off <= sig_start - 8):
                 raise WrongPasswordOrCorrupt(
-                    "볼트 파일이 손상되었습니다(인덱스 위치 오류).")
+                    T("err.idx_pos"))
             f.seek(index_off)
             nAi = _readn(f, 12)
             nCi = _readn(f, 12)
             ilen = _u64(_readn(f, 8))
             if ilen <= 0 or ilen > MAX_INDEX:
                 raise WrongPasswordOrCorrupt(
-                    "볼트 파일이 손상되었습니다(인덱스 크기 비정상).")
+                    T("err.idx_size_bad"))
             if index_off + 12 + 12 + 8 + ilen != sig_start - 8:
                 raise WrongPasswordOrCorrupt(
-                    "볼트 파일이 손상되었습니다(인덱스 크기 불일치).")
+                    T("err.idx_size_mismatch"))
             ict = _readn(f, ilen)
             f.seek(sig_start)
             ed_sig = _readn(f, SIG_LEN)
@@ -945,9 +1486,7 @@ class Vault:
 
         if pmode == 1 and not user_pepper:
             raise KeychainPepperRequired(
-                "이 볼트는 OS 키체인 페퍼가 필요합니다 (생성한 Windows "
-                "계정·PC 전용).\n설정 → '페퍼 복원'으로 백업본을 가져오거나, "
-                "원래 환경에서 여세요.")
+                T("err.keychain_required"))
         root = derive_root_v3(password, salt, kdf,
                               user_pepper if pmode == 1 else None)
         # 1) 하이브리드 서명 검증: Ed25519 + ML-DSA-65 (둘 다 통과해야 함)
@@ -955,7 +1494,7 @@ class Vault:
             hybrid_verify(root, digest, ed_sig, ml_sig)
         except InvalidSignature:
             raise WrongPasswordOrCorrupt(
-                "비밀번호가 틀렸거나 볼트가 변조/손상되었습니다.")
+                T("err.pw_or_tampered"))
         # 2) 헤더/인덱스 캐스케이드 복호화
         try:
             header = json.loads(casc_decrypt(
@@ -966,11 +1505,11 @@ class Vault:
                 nAi, nCi, ict, MAGIC4 + nAh + nCh))
         except Exception:
             raise WrongPasswordOrCorrupt(
-                "비밀번호가 틀렸거나 볼트가 손상/변조되었습니다.")
+                T("err.pw_or_corrupt"))
         if not _verifier_ok(header):
-            raise WrongPasswordOrCorrupt("검증자 불일치 — 볼트 손상.")
+            raise WrongPasswordOrCorrupt(T("err.verifier"))
         if not isinstance(index, dict) or "entries" not in index:
-            raise WrongPasswordOrCorrupt("인덱스가 손상되었습니다.")
+            raise WrongPasswordOrCorrupt(T("err.index_corrupt"))
         return root, kdf, header, index, data_start, index_off, 4
 
     def read_header(self, password: str,
@@ -994,7 +1533,7 @@ class Vault:
             f.seek(data_start)
             for e in entries:
                 if cancel and cancel():
-                    raise InterruptedError("사용자가 취소했습니다.")
+                    raise InterruptedError(T("err.cancelled_op"))
                 if e.get("t") != "f":
                     continue
                 rp = e["p"]
@@ -1011,13 +1550,13 @@ class Vault:
                     acc += len(pt)
                     done += len(pt)
                     if progress:
-                        progress(done, total, f"검증 중: {rp}")
+                        progress(done, total, T("prog.verifying", rp=rp))
                 if acc != ps:
                     raise WrongPasswordOrCorrupt(
-                        f"크기 검증 실패(데이터 불일치): {rp}")
+                        T("err.size_verify", rp=rp))
             if f.tell() != index_off:
                 raise WrongPasswordOrCorrupt(
-                    "구조 검증 실패(데이터 영역 크기 불일치).")
+                    T("err.struct_verify"))
 
     # ---- 추출(열기/복원) -------------------------------------------------
     def extract_to(self, password: str, dest_parent: str,
@@ -1027,7 +1566,7 @@ class Vault:
         root, kdf, header, index, data_start, index_off, ver = \
             self._open(password, user_pepper)
         folder_name = (index.get("folder_name") or header.get("name")
-                       or "복원폴더")
+                       or T("name.restore_folder"))
         final_dir = os.path.join(dest_parent, folder_name)
         if os.path.exists(_lp(final_dir)):
             raise FileExistsError(final_dir)
@@ -1044,7 +1583,7 @@ class Vault:
                 f.seek(data_start)
                 for e in entries:
                     if cancel and cancel():
-                        raise InterruptedError("사용자가 취소했습니다.")
+                        raise InterruptedError(T("err.cancelled_op"))
                     rel = e["p"].replace("/", os.sep)
                     out_path = os.path.join(tmp_dir, rel)
                     if e.get("t") == "d":
@@ -1070,10 +1609,11 @@ class Vault:
                                 written += len(take)
                             done += len(pt)
                             if progress:
-                                progress(done, total, f"복원 중: {rp}")
+                                progress(done, total,
+                                         T("prog.restoring", rp=rp))
                     if written != size:
                         raise WrongPasswordOrCorrupt(
-                            f"복원 크기 불일치(데이터 손상): {rp}")
+                            T("err.restore_size", rp=rp))
                 if f.tell() != index_off:
                     raise WrongPasswordOrCorrupt(
                         "구조 검증 실패(데이터 영역 크기 불일치).")
@@ -1137,7 +1677,7 @@ class Vault:
                 fin.seek(data_start)
                 for e in entries:
                     if cancel and cancel():
-                        raise InterruptedError("사용자가 취소했습니다.")
+                        raise InterruptedError(T("err.cancelled_op"))
                     if e.get("t") != "f":
                         continue
                     rp = e["p"]
@@ -1178,10 +1718,10 @@ class Vault:
                             done += len(take)
                             if progress:
                                 progress(done, total,
-                                         f"재암호화 중: {rp}")
+                                         T("prog.reencrypting", rp=rp))
                     if real_rem != 0:
                         raise WrongPasswordOrCorrupt(
-                            f"원본 크기 불일치(데이터 손상): {rp}")
+                            T("err.src_size", rp=rp))
                     if buf:
                         emit(buf)
                         buf = bytearray()
@@ -1197,7 +1737,7 @@ class Vault:
                     e["fid"] = fid_new
                 if fin.tell() != index_off:
                     raise WrongPasswordOrCorrupt(
-                        "구조 검증 실패(원본 데이터 영역 불일치).")
+                        T("err.struct_src"))
 
                 data_end = out.tell()
                 index["total_size"] = sum(
@@ -1260,7 +1800,7 @@ class Vault:
         moved = False
         try:
             if progress:
-                progress(0, 1, "재암호화 중 (평문은 디스크에 쓰지 않음)...")
+                progress(0, 1, T("prog.reencrypt_nodisk"))
             Vault._reencrypt(self.path, new_tmp, old_pw, new_pw, kdf,
                              progress=progress,
                              src_user_pepper=src_user_pepper,
@@ -1396,7 +1936,7 @@ def _rmtree_quiet(folder: str) -> None:
 # ===========================================================================
 def password_strength(pw: str) -> tuple[int, str]:
     if not pw:
-        return 0, "없음"
+        return 0, T("pw.none")
     score = 0
     if len(pw) >= 8:
         score += 1
@@ -1412,7 +1952,8 @@ def password_strength(pw: str) -> tuple[int, str]:
     ))
     score += max(0, classes - 1)
     score = min(score, 5)
-    return score, ["매우 약함", "약함", "보통", "양호", "강함", "매우 강함"][score]
+    return score, [T("pw.s0"), T("pw.s1"), T("pw.s2"),
+                   T("pw.s3"), T("pw.s4"), T("pw.s5")][score]
 
 
 # ===========================================================================
@@ -1438,32 +1979,34 @@ class PasswordDialog(tk.Toplevel):
 
         frm = tk.Frame(self)
         frm.pack(fill="x", **pad)
-        tk.Label(frm, text="비밀번호:", width=10, anchor="w").grid(
+        tk.Label(frm, text=T("pwd.label"), width=10, anchor="w").grid(
             row=0, column=0, sticky="w", pady=4)
         self.e1 = tk.Entry(frm, show="•", width=34)
         self.e1.grid(row=0, column=1, pady=4)
         self.e1.focus_set()
 
         self.var_show = tk.IntVar(value=0)
-        tk.Checkbutton(frm, text="표시", variable=self.var_show,
+        tk.Checkbutton(frm, text=T("pwd.show"), variable=self.var_show,
                        command=self._toggle).grid(row=0, column=2, padx=6)
 
         if confirm:
-            tk.Label(frm, text="비밀번호 확인:", width=10, anchor="w").grid(
+            tk.Label(frm, text=T("pwd.confirm"), width=10,
+                     anchor="w").grid(
                 row=1, column=0, sticky="w", pady=4)
             self.e2 = tk.Entry(frm, show="•", width=34)
             self.e2.grid(row=1, column=1, pady=4)
             self.bar = ttk.Progressbar(self, maximum=5, length=300)
             self.bar.pack(**pad)
-            self.lbl_strength = tk.Label(self, text="강도: -", anchor="w")
+            self.lbl_strength = tk.Label(
+                self, text=T("pwd.strength_dash"), anchor="w")
             self.lbl_strength.pack(anchor="w", padx=14)
             self.e1.bind("<KeyRelease>", self._upd_strength)
 
         btns = tk.Frame(self)
         btns.pack(fill="x", **pad)
-        tk.Button(btns, text="확인", width=10,
+        tk.Button(btns, text=T("btn.ok"), width=10,
                   command=self._ok).pack(side="right", padx=4)
-        tk.Button(btns, text="취소", width=10,
+        tk.Button(btns, text=T("btn.cancel"), width=10,
                   command=self._cancel).pack(side="right", padx=4)
         self.bind("<Return>", lambda e: self._ok())
         self.bind("<Escape>", lambda e: self._cancel())
@@ -1484,25 +2027,25 @@ class PasswordDialog(tk.Toplevel):
     def _upd_strength(self, _e=None):
         s, label = password_strength(self.e1.get())
         self.bar["value"] = s
-        self.lbl_strength.config(text=f"강도: {label}")
+        self.lbl_strength.config(text=T("pwd.strength", label=label))
 
     def _ok(self):
         pw = self.e1.get()
         if not pw:
-            messagebox.showwarning(APP_NAME, "비밀번호를 입력하세요.", parent=self)
+            messagebox.showwarning(APP_NAME, T("pwd.enter"), parent=self)
             return
         if self.confirm:
             if pw != self.e2.get():
-                messagebox.showwarning(APP_NAME, "비밀번호 확인이 일치하지 않습니다.",
+                messagebox.showwarning(APP_NAME, T("pwd.mismatch"),
                                        parent=self)
                 return
             if len(pw) < 8:
                 messagebox.showwarning(
-                    APP_NAME, "보안을 위해 8자 이상으로 설정하세요.", parent=self)
+                    APP_NAME, T("pwd.min8"), parent=self)
                 return
             s, _ = password_strength(pw)
             if s < 2 and not messagebox.askyesno(
-                    APP_NAME, "비밀번호가 약합니다. 그래도 사용하시겠습니까?",
+                    APP_NAME, T("pwd.weak_confirm"),
                     parent=self):
                 return
         self.result = pw
@@ -1529,13 +2072,14 @@ class ProgressDialog(tk.Toplevel):
         self.cancelled = False
         tk.Label(self, text=title, font=("", 10, "bold")).pack(
             padx=20, pady=(16, 4), anchor="w")
-        self.msg = tk.Label(self, text="준비 중...", anchor="w", width=52)
+        self.msg = tk.Label(self, text=T("prog.preparing"),
+                            anchor="w", width=52)
         self.msg.pack(padx=20, pady=4, anchor="w")
         self.bar = ttk.Progressbar(self, maximum=1000, length=380)
         self.bar.pack(padx=20, pady=8)
         self.pct = tk.Label(self, text="0%")
         self.pct.pack()
-        tk.Button(self, text="취소", width=10,
+        tk.Button(self, text=T("btn.cancel"), width=10,
                   command=self._cancel).pack(pady=(8, 16))
         self.protocol("WM_DELETE_WINDOW", self._cancel)
         self.update_idletasks()
@@ -1544,7 +2088,7 @@ class ProgressDialog(tk.Toplevel):
 
     def _cancel(self):
         self.cancelled = True
-        self.msg.config(text="취소 중... 잠시만 기다리세요.")
+        self.msg.config(text=T("prog.cancelling"))
 
     def set_progress(self, done: int, total: int, text: str):
         total = max(1, total)
@@ -1567,10 +2111,14 @@ class App(tk.Tk):
             cfg = {}
         preset = cfg.get("kdf_preset", "standard")
         pmode = cfg.get("pepper_mode", "app")
+        lang = cfg.get("lang", "ko")
+        set_lang(lang)
+        self.title(T("app.title"))
         self.config_data = {
             "kdf_preset": preset if preset in KDF_PRESETS else "standard",
             "secure_delete": bool(cfg.get("secure_delete", True)),
             "pepper_mode": pmode if pmode in ("app", "keychain") else "app",
+            "lang": "en" if lang == "en" else "ko",
         }
         self.registry = self._sanitize_registry(
             load_json(REGISTRY_PATH, {"vaults": []}))
@@ -1611,12 +2159,15 @@ class App(tk.Tk):
     def _build_ui(self):
         top = tk.Frame(self, padx=14, pady=12)
         top.pack(fill="x")
-        tk.Label(top, text="🔒 FolderVault", font=("", 16, "bold")).pack(
+        tk.Label(top, text=T("app.header"), font=("", 16, "bold")).pack(
             side="left")
-        tk.Label(top, text="  폴더를 강력하게 암호화하여 보관합니다",
+        tk.Label(top, text=T("app.subtitle"),
                  fg="#666").pack(side="left")
-        tk.Button(top, text="⚙ 설정", command=self._open_settings).pack(
-            side="right")
+        tk.Button(top, text=T("btn.settings"),
+                  command=self._open_settings).pack(side="right")
+
+        tk.Label(self, text=T_other("hint.lang"), fg="#888",
+                 anchor="w", padx=14).pack(fill="x")
 
         body = tk.Frame(self, padx=14)
         body.pack(fill="both", expand=True)
@@ -1624,8 +2175,10 @@ class App(tk.Tk):
         cols = ("name", "status", "size", "path")
         self.tree = ttk.Treeview(body, columns=cols, show="headings",
                                  height=12)
-        for c, t, w in (("name", "이름", 150), ("status", "상태", 90),
-                        ("size", "크기", 90), ("path", "볼트 경로", 380)):
+        for c, t, w in (("name", T("col.name"), 150),
+                        ("status", T("col.status"), 90),
+                        ("size", T("col.size"), 90),
+                        ("path", T("col.path"), 380)):
             self.tree.heading(c, text=t)
             self.tree.column(c, width=w, anchor="w")
         self.tree.pack(side="left", fill="both", expand=True, pady=8)
@@ -1637,15 +2190,17 @@ class App(tk.Tk):
         side.pack(fill="x")
         mk = lambda txt, cmd, **kw: tk.Button(
             side, text=txt, width=18, command=cmd, **kw)
-        mk("➕ 폴더 잠그기", self.lock_folder).pack(side="left", padx=3)
-        mk("🔓 보안 폴더 열기", self.unlock_vault).pack(side="left", padx=3)
-        mk("🔁 다시 잠그기", self.relock).pack(side="left", padx=3)
-        mk("🔑 비밀번호 변경", self.change_pw).pack(side="left", padx=3)
-        mk("✖ 목록에서 제거", self.remove_from_list).pack(side="left", padx=3)
-        tk.Button(side, text="🔄 새로고침", width=12,
+        mk(T("btn.lock"), self.lock_folder).pack(side="left", padx=3)
+        mk(T("btn.open"), self.unlock_vault).pack(side="left", padx=3)
+        mk(T("btn.relock"), self.relock).pack(side="left", padx=3)
+        mk(T("btn.changepw"), self.change_pw).pack(side="left", padx=3)
+        mk(T("btn.remove"), self.remove_from_list).pack(
+            side="left", padx=3)
+        tk.Button(side, text=T("btn.refresh"), width=12,
                   command=self._refresh_list).pack(side="right", padx=3)
 
-        self.status = tk.Label(self, text="준비됨", anchor="w", fg="#333",
+        self.status = tk.Label(self, text=T("status.ready"),
+                                anchor="w", fg="#333",
                                 relief="sunken", padx=8)
         self.status.pack(fill="x", side="bottom")
 
@@ -1666,16 +2221,15 @@ class App(tk.Tk):
         except Exception:
             pass
         try:
-            self._set_status("오류 발생")
+            self._set_status(T("status.error"))
         except Exception:
             pass
         try:
             last = traceback.format_exception_only(exc, val)[-1].strip()
             messagebox.showerror(
                 APP_NAME,
-                "예기치 못한 오류가 발생했습니다.\n\n"
-                f"{last}\n\n"
-                f"자세한 내용:\n{CONFIG_DIR / 'crash.log'}")
+                T("err.unexpected", last=last,
+                  path=CONFIG_DIR / 'crash.log'))
         except Exception:
             pass
 
@@ -1691,24 +2245,17 @@ class App(tk.Tk):
             return 0, None
         if not dpapi_available():
             messagebox.showwarning(
-                APP_NAME, "OS 키체인 모드는 Windows 에서만 지원됩니다. "
-                "앱 모드로 진행합니다.")
+                APP_NAME, T("msg.keychain_win_only"))
             return 0, None
         try:
             up, created = ensure_user_pepper()
         except Exception as e:
             messagebox.showerror(
-                APP_NAME, f"키체인 페퍼를 준비하지 못했습니다.\n{e}\n"
-                "앱 모드로 진행합니다.")
+                APP_NAME, T("msg.keychain_prep_fail", e=e))
             return 0, None
         if created:
             messagebox.showwarning(
-                APP_NAME,
-                "⚠ OS 키체인 페퍼가 새로 생성되었습니다.\n\n"
-                "이 모드로 만든 볼트는 '이 Windows 계정·이 PC'에서만 "
-                "열립니다. OS 재설치·계정 삭제·다른 PC 에서는 올바른 "
-                "비밀번호로도 복구 불가합니다.\n\n"
-                "지금 '설정 → 페퍼 백업'으로 반드시 백업하세요.")
+                APP_NAME, T("msg.keychain_created"))
         return 1, up
 
     def _pepper_for_open(self):
@@ -1727,10 +2274,10 @@ class App(tk.Tk):
             empty = not os.listdir(_lp(folder))
         except OSError as e:
             messagebox.showerror(
-                APP_NAME, f"폴더에 접근할 수 없습니다:\n{folder}\n\n{e}")
+                APP_NAME, T("msg.folder_inaccessible", folder=folder, e=e))
             return False
         if empty:
-            messagebox.showwarning(APP_NAME, "빈 폴더입니다.")
+            messagebox.showwarning(APP_NAME, T("msg.empty_folder"))
             return False
         return True
 
@@ -1738,10 +2285,7 @@ class App(tk.Tk):
         """대상 볼트 파일이 이미 있으면 덮어쓰기 확인. 진행 가능하면 True."""
         if os.path.exists(_lp(vault_path)):
             return messagebox.askyesno(
-                APP_NAME,
-                "이미 존재하는 파일입니다. 덮어쓰시겠습니까?\n\n"
-                f"{vault_path}\n\n"
-                "(다른 볼트라면 그 데이터가 영구히 사라집니다.)")
+                APP_NAME, T("msg.overwrite", path=vault_path))
         return True
 
     # ---- 레지스트리 ------------------------------------------------------
@@ -1762,11 +2306,11 @@ class App(tk.Tk):
             ext = v.get("extracted_to")
             ext_exists = bool(ext) and os.path.exists(_lp(ext))
             if not vault_exists:
-                status = "⚠ 파일없음"
+                status = T("st.file_missing")
             elif ext_exists:
-                status = "🔓 풀림 — 보안 안됨"
+                status = T("st.unlocked")
             else:
-                status = "🔒 보안됨"
+                status = T("st.secured")
             try:
                 self.tree.insert("", "end", iid=vp, values=(
                     v.get("name", "?"), status,
@@ -1825,14 +2369,14 @@ class App(tk.Tk):
                         return
                     elif kind == "cancelled":
                         dlg.destroy()
-                        self._set_status("취소되었습니다.")
-                        messagebox.showinfo(APP_NAME, "작업이 취소되었습니다.")
+                        self._set_status(T("cancel.status"))
+                        messagebox.showinfo(APP_NAME, T("cancel.msg"))
                         return
                     elif kind == "error":
                         dlg.destroy()
-                        self._set_status("오류 발생")
+                        self._set_status(T("status.error"))
                         messagebox.showerror(
-                            APP_NAME, f"오류가 발생했습니다:\n\n{item[1]}")
+                            APP_NAME, T("err.generic", e=item[1]))
                         return
             except queue.Empty:
                 pass
@@ -1844,34 +2388,19 @@ class App(tk.Tk):
     def _ask_original_policy(self, folder: str):
         """반환: None=취소, True=원본 삭제, False=원본 유지."""
         choice = messagebox.askyesnocancel(
-            APP_NAME,
-            "원본 폴더를 어떻게 처리할까요?\n\n"
-            f"대상: {folder}\n\n"
-            "[예]    암호화 후 원본을 영구 삭제\n"
-            "         → 진짜 보안 (평문 사본이 남지 않음)\n\n"
-            "[아니오] 원본을 그대로 두고 암호본만 생성\n"
-            "         → 처음 동작을 시험할 때 권장\n"
-            "         (평문 원본이 남으므로 보안 효과는 없음)\n\n"
-            "[취소]   작업 중단")
+            APP_NAME, T("msg.original_policy", folder=folder))
         if choice is None:
             return None
         if not choice:
             return False
         confirm = messagebox.askyesno(
-            APP_NAME,
-            "⚠ 마지막 확인 — 되돌릴 수 없습니다\n\n"
-            f"다음 폴더가 영구 삭제됩니다:\n{folder}\n\n"
-            "• 비밀번호를 잊으면 복구 불가\n"
-            "• .foldervault 파일이 없으면 복구 불가\n\n"
-            "암호화는 삭제 '전에' 검증되며, 검증에 실패하면\n"
-            "원본은 삭제되지 않습니다.\n\n"
-            "정말 진행하시겠습니까?",
+            APP_NAME, T("msg.original_final", folder=folder),
             icon="warning", default="no")
         return True if confirm else None
 
     # ---- 기능: 폴더 잠그기 ----------------------------------------------
     def lock_folder(self):
-        folder = filedialog.askdirectory(title="암호화할 폴더 선택")
+        folder = filedialog.askdirectory(title=T("title.lock_folder"))
         if not folder:
             return
         folder = os.path.abspath(folder)
@@ -1879,7 +2408,7 @@ class App(tk.Tk):
             return
         default_vault = folder.rstrip("\\/") + VAULT_EXT
         vault_path = filedialog.asksaveasfilename(
-            title="보안 파일(.foldervault) 저장 위치",
+            title=T("title.save_vault"),
             initialfile=os.path.basename(default_vault),
             initialdir=os.path.dirname(default_vault),
             defaultextension=VAULT_EXT,
@@ -1891,17 +2420,12 @@ class App(tk.Tk):
         if path_is_within(vault_path, folder) or \
                 path_is_within(vault_path + ".tmp", folder):
             messagebox.showerror(
-                APP_NAME,
-                "보안 파일(.foldervault)을 암호화 대상 폴더 '안에' 저장할 수 "
-                "없습니다.\n\n암호화 후 그 폴더가 삭제될 때 보안 파일까지 함께 "
-                "사라져 데이터를 영구히 잃습니다.\n\n폴더 바깥(상위 폴더나 다른 "
-                "드라이브)을 선택하세요.")
+                APP_NAME, T("msg.vault_inside"))
             return
 
         pw = PasswordDialog.ask(
-            self, "새 비밀번호 설정", confirm=True,
-            info=("이 폴더를 열 때 사용할 비밀번호입니다.\n"
-                  "⚠ 비밀번호를 잊으면 복구가 불가능합니다. 안전하게 보관하세요."))
+            self, T("title.set_new_pw"), confirm=True,
+            info=T("info.new_pw"))
         if not pw:
             return
 
@@ -1912,7 +2436,7 @@ class App(tk.Tk):
         secure = self.config_data.get("secure_delete", True)
         kdf = self._kdf()
         pmode, upep = self._pepper_for_create()
-        self._set_status("암호화 중...")
+        self._set_status(T("status.encrypting"))
 
         def work(progress_cb, cancel_cb):
             info = Vault.create_from_folder(
@@ -1922,7 +2446,7 @@ class App(tk.Tk):
             info["delete_failed"] = []
             info["folder_remains"] = False
             if delete_original:
-                progress_cb(0, 1, "원본 폴더 안전 삭제 중...")
+                progress_cb(0, 1, T("prog.delete_original"))
                 info["delete_failed"] = secure_delete_listed(
                     folder, info["file_paths"], info["dir_paths"],
                     secure=secure)
@@ -1932,7 +2456,7 @@ class App(tk.Tk):
         def done(info):
             self._lock_done(info, vault_path, folder, delete_original)
 
-        self._run_bg("폴더 암호화", work, done)
+        self._run_bg(T("task.encrypt"), work, done)
 
     def _lock_done(self, info, vault_path, folder, delete_original):
         """잠그기/다시잠그기 공통 결과 처리 — 삭제 결과를 정직하게 반영."""
@@ -1941,99 +2465,77 @@ class App(tk.Tk):
         if not delete_original:
             self._register_vault(vault_path, info["name"],
                                  info["total_size"], extracted_to=folder)
-            self._set_status(f"완료(원본 유지): '{info['name']}'")
+            self._set_status(T("status.done_keep", name=info['name']))
             messagebox.showinfo(
-                APP_NAME,
-                "암호화가 완료되었습니다. (원본 유지)\n\n"
-                f"• 보안 파일: {vault_path}\n"
-                f"• 원본 폴더는 그대로 있습니다.\n\n"
-                "동작을 확인했다면, 실제 보안을 위해 원본을 직접 삭제하거나"
-                " '다시 잠그기'를 사용하세요.\n"
-                "(원본이 남아 있는 동안에는 보안 효과가 없습니다.)")
+                APP_NAME, T("msg.done_keep", vault=vault_path))
             return
         if failed:
             # 평문이 일부 남음 → 보안 미완성. 정직하게 경고 + 상태 반영.
             self._register_vault(vault_path, info["name"],
                                  info["total_size"], extracted_to=folder)
             shown = "\n".join("  - " + p for p in failed[:10])
-            more = (f"\n  …외 {len(failed) - 10}개"
+            more = (T("list.more", n=len(failed) - 10)
                     if len(failed) > 10 else "")
-            self._set_status("주의: 원본 일부 삭제 실패 — 평문 잔존")
+            self._set_status(T("status.partial_del"))
             messagebox.showwarning(
-                APP_NAME,
-                "암호화는 완료됐고 보안 파일은 정상입니다.\n"
-                "그러나 원본 일부를 삭제하지 못했습니다(다른 프로그램이 "
-                "사용 중이거나 권한 문제).\n아래 항목은 평문으로 남아 있어 "
-                "보안되지 않습니다 — 수동으로 삭제하세요:\n\n"
-                + shown + more
-                + f"\n\n• 보안 파일: {vault_path}\n  (반드시 백업하세요.)")
+                APP_NAME, T("msg.partial_del", shown=shown, more=more,
+                            vault=vault_path))
             return
         # 우리 데이터의 평문은 모두 제거됨 → 보안 완료.
         self._register_vault(vault_path, info["name"],
                              info["total_size"], extracted_to=None)
         if remains:
-            self._set_status(f"완료: '{info['name']}' (폴더 잔존)")
+            self._set_status(T("status.done_remain", name=info['name']))
             messagebox.showinfo(
-                APP_NAME,
-                "폴더가 안전하게 암호화되고 원본 파일들은 삭제되었습니다.\n\n"
-                "다만 잠금 이후 새로 생긴 파일이 있어 폴더가 남아 있습니다"
-                f"(그 파일들은 안전을 위해 건드리지 않았습니다):\n{folder}\n"
-                "확인 후 직접 정리하세요.\n\n"
-                f"• 보안 파일: {vault_path}\n  (반드시 백업하세요.)")
+                APP_NAME, T("msg.done_remain", folder=folder,
+                            vault=vault_path))
         else:
-            self._set_status(
-                f"완료: '{info['name']}' 잠금 ({info['entries']}개 항목)")
+            self._set_status(T("status.done_lock", name=info['name'],
+                                entries=info['entries']))
             messagebox.showinfo(
-                APP_NAME,
-                "폴더가 안전하게 암호화되었습니다.\n\n"
-                f"• 보안 파일: {vault_path}\n"
-                "• 원본 폴더는 삭제되었습니다.\n\n"
-                "이 .foldervault 파일을 반드시 백업하세요.")
+                APP_NAME, T("msg.done_lock", vault=vault_path))
 
     # ---- 기능: 보안 폴더 열기 -------------------------------------------
     def unlock_vault(self):
         vault_path = self._selected_vault()
         if not vault_path or not os.path.exists(_lp(vault_path)):
             vault_path = filedialog.askopenfilename(
-                title="보안 파일 선택",
+                title=T("title.choose_vault"),
                 filetypes=[("FolderVault", "*" + VAULT_EXT),
-                           ("모든 파일", "*.*")])
+                           (T("ft.all_files"), "*.*")])
         if not vault_path:
             return
-        pw = PasswordDialog.ask(self, "비밀번호 입력",
-                                info=f"볼트: {os.path.basename(vault_path)}")
+        pw = PasswordDialog.ask(
+            self, T("title.enter_pw"),
+            info=T("info.vault", name=os.path.basename(vault_path)))
         if not pw:
             return
         upep = self._pepper_for_open()
         try:
-            self._set_status("비밀번호 확인 중...")
+            self._set_status(T("status.checking_pw"))
             header = Vault(vault_path).read_header(pw, user_pepper=upep)
         except WrongPasswordOrCorrupt as e:
-            self._set_status("열기 실패")
+            self._set_status(T("status.open_fail"))
             messagebox.showerror(APP_NAME, str(e))
             return
 
         dest_parent = filedialog.askdirectory(
-            title=f"'{header['_folder_name']}' 폴더를 복원할 위치 선택")
+            title=T("title.restore_where", name=header['_folder_name']))
         if not dest_parent:
             return
         final = os.path.join(dest_parent, header["_folder_name"])
         if os.path.exists(_lp(final)):
             messagebox.showerror(
-                APP_NAME, f"이미 같은 이름의 폴더가 있습니다:\n{final}")
+                APP_NAME, T("msg.same_name", final=final))
             return
 
         keep = messagebox.askyesnocancel(
-            APP_NAME,
-            "복원 후 보안 파일(.foldervault)을 유지할까요?\n\n"
-            "[예] 보안 파일 유지 (권장 — 백업으로 보관)\n"
-            "[아니오] 복원 후 보안 파일 삭제\n"
-            "[취소] 작업 중단")
+            APP_NAME, T("msg.keep_vault"))
         if keep is None:
             return
 
         secure = self.config_data.get("secure_delete", True)
-        self._set_status("복호화 중...")
+        self._set_status(T("status.decrypting"))
 
         def work(progress_cb, cancel_cb):
             out = Vault(vault_path).extract_to(
@@ -2041,7 +2543,7 @@ class App(tk.Tk):
                 user_pepper=upep)
             vault_deleted = True
             if not keep:
-                progress_cb(0, 1, "보안 파일 삭제 중...")
+                progress_cb(0, 1, T("prog.delete_vault"))
                 vault_deleted = (secure_delete_file(vault_path) if secure
                                  else _plain_delete_file(vault_path))
             return {"out": out, "vault_deleted": vault_deleted}
@@ -2061,36 +2563,28 @@ class App(tk.Tk):
                     and x.get("vault_path") != vault_path]
                 save_json(REGISTRY_PATH, self.registry)
                 self._refresh_list()
-                self._set_status(f"복원 완료(보안 파일 삭제): {out}")
+                self._set_status(T("status.restore_done_del", out=out))
                 messagebox.showinfo(
-                    APP_NAME,
-                    f"폴더가 복원되었고 보안 파일은 삭제되었습니다:\n\n{out}")
+                    APP_NAME, T("msg.restore_done_del", out=out))
             elif not keep and not res["vault_deleted"]:
                 # 삭제 실패 → 볼트가 그대로 존재. 목록 유지 + 정직히 경고.
                 reg_extracted(out)
-                self._set_status("복원 완료 — 보안 파일 삭제 실패")
+                self._set_status(T("status.restore_done_delfail"))
                 messagebox.showwarning(
-                    APP_NAME,
-                    f"폴더는 복원되었습니다:\n{out}\n\n"
-                    "그러나 보안 파일을 삭제하지 못했습니다(다른 프로그램이 "
-                    "사용 중이거나 권한 문제). 파일이 그대로 남아 목록에 "
-                    f"유지됩니다:\n{vault_path}\n필요하면 직접 삭제하세요.")
+                    APP_NAME, T("msg.restore_done_delfail", out=out,
+                                vault=vault_path))
             else:
                 reg_extracted(out)
-                self._set_status(f"복원 완료: {out}")
+                self._set_status(T("status.restore_done", out=out))
                 messagebox.showinfo(
-                    APP_NAME,
-                    f"폴더가 복원되었습니다:\n\n{out}\n\n"
-                    "이 폴더가 디스크에 남아 있는 동안에는 목록 상태가\n"
-                    "'🔓 풀림 — 보안 안됨'으로 표시됩니다.\n"
-                    "다시 안전하게 하려면 '다시 잠그기'를 사용하세요.")
+                    APP_NAME, T("msg.restore_done", out=out))
 
-        self._run_bg("폴더 복호화", work, done)
+        self._run_bg(T("task.decrypt"), work, done)
 
     # ---- 기능: 다시 잠그기 ----------------------------------------------
     def relock(self):
         folder = filedialog.askdirectory(
-            title="다시 잠글 (이미 복원된) 폴더 선택")
+            title=T("title.relock_folder"))
         if not folder:
             return
         folder = os.path.abspath(folder)
@@ -2098,7 +2592,7 @@ class App(tk.Tk):
             return
         default_vault = folder.rstrip("\\/") + VAULT_EXT
         vault_path = filedialog.asksaveasfilename(
-            title="보안 파일 저장 위치",
+            title=T("title.save_vault2"),
             initialfile=os.path.basename(default_vault),
             initialdir=os.path.dirname(default_vault),
             defaultextension=VAULT_EXT,
@@ -2110,13 +2604,10 @@ class App(tk.Tk):
         if path_is_within(vault_path, folder) or \
                 path_is_within(vault_path + ".tmp", folder):
             messagebox.showerror(
-                APP_NAME,
-                "보안 파일을 암호화 대상 폴더 '안에' 저장할 수 없습니다.\n"
-                "그 폴더 삭제 시 보안 파일까지 사라져 데이터를 잃습니다.\n"
-                "폴더 바깥을 선택하세요.")
+                APP_NAME, T("msg.vault_inside2"))
             return
-        pw = PasswordDialog.ask(self, "비밀번호 설정", confirm=True,
-                                info="이 폴더를 다시 암호화합니다.")
+        pw = PasswordDialog.ask(self, T("title.set_pw"), confirm=True,
+                                info=T("info.relock"))
         if not pw:
             return
         policy = self._ask_original_policy(folder)
@@ -2135,7 +2626,7 @@ class App(tk.Tk):
             info["delete_failed"] = []
             info["folder_remains"] = False
             if delete_original:
-                progress_cb(0, 1, "원본 폴더 안전 삭제 중...")
+                progress_cb(0, 1, T("prog.delete_original"))
                 info["delete_failed"] = secure_delete_listed(
                     folder, info["file_paths"], info["dir_paths"],
                     secure=secure)
@@ -2145,18 +2636,18 @@ class App(tk.Tk):
         def done(info):
             self._lock_done(info, vault_path, folder, delete_original)
 
-        self._run_bg("폴더 암호화", work, done)
+        self._run_bg(T("task.encrypt"), work, done)
 
     # ---- 기능: 비밀번호 변경 --------------------------------------------
     def change_pw(self):
         vault_path = self._selected_vault()
         if not vault_path or not os.path.exists(_lp(vault_path)):
             vault_path = filedialog.askopenfilename(
-                title="보안 파일 선택",
+                title=T("title.choose_vault"),
                 filetypes=[("FolderVault", "*" + VAULT_EXT)])
         if not vault_path:
             return
-        old = PasswordDialog.ask(self, "현재 비밀번호")
+        old = PasswordDialog.ask(self, T("title.cur_pw"))
         if not old:
             return
         src_upep = self._pepper_for_open()
@@ -2165,7 +2656,7 @@ class App(tk.Tk):
         except WrongPasswordOrCorrupt as e:
             messagebox.showerror(APP_NAME, str(e))
             return
-        new = PasswordDialog.ask(self, "새 비밀번호", confirm=True)
+        new = PasswordDialog.ask(self, T("title.new_pw"), confirm=True)
         if not new:
             return
         kdf = self._kdf()
@@ -2180,148 +2671,154 @@ class App(tk.Tk):
             return True
 
         def done(_):
-            self._set_status("비밀번호가 변경되었습니다.")
-            messagebox.showinfo(APP_NAME, "비밀번호가 변경되었습니다.")
+            self._set_status(T("status.pw_changed"))
+            messagebox.showinfo(APP_NAME, T("msg.pw_changed"))
 
-        self._run_bg("비밀번호 변경", work, done)
+        self._run_bg(T("task.changepw"), work, done)
 
     # ---- 기능: 목록에서 제거 --------------------------------------------
     def remove_from_list(self):
         vp = self._selected_vault()
         if not vp:
-            messagebox.showinfo(APP_NAME, "목록에서 항목을 선택하세요.")
+            messagebox.showinfo(APP_NAME, T("msg.select_item"))
             return
         if not messagebox.askyesno(
-                APP_NAME,
-                "목록에서만 제거합니다. (실제 .foldervault 파일은 삭제되지 "
-                "않습니다.)\n계속할까요?"):
+                APP_NAME, T("msg.remove_confirm")):
             return
         self.registry["vaults"] = [
             x for x in self.registry["vaults"] if x["vault_path"] != vp]
         save_json(REGISTRY_PATH, self.registry)
         self._refresh_list()
-        self._set_status("목록에서 제거됨")
+        self._set_status(T("status.removed"))
 
     # ---- 설정 ------------------------------------------------------------
     def _open_settings(self):
         d = tk.Toplevel(self)
-        d.title("설정")
+        d.title(T("title.settings"))
         d.resizable(False, False)
         d.transient(self)
         d.grab_set()
 
-        tk.Label(d, text="암호화 강도 (Argon2id)", font=("", 10, "bold")).pack(
+        lang_var = tk.StringVar(value=self.config_data.get("lang", "ko"))
+        tk.Label(d, text=T("set.lang_title"), font=("", 10, "bold")).pack(
+            anchor="w", padx=16, pady=(14, 4))
+        tk.Radiobutton(d, text=T("set.lang_ko"), variable=lang_var,
+                       value="ko").pack(anchor="w", padx=24)
+        tk.Radiobutton(d, text=T("set.lang_en"), variable=lang_var,
+                       value="en").pack(anchor="w", padx=24)
+
+        tk.Label(d, text=T("set.kdf_title"), font=("", 10, "bold")).pack(
             anchor="w", padx=16, pady=(14, 4))
         preset = tk.StringVar(value=self.config_data.get("kdf_preset",
                                                          "standard"))
         tk.Radiobutton(
-            d, text="표준 — 256MB 메모리 (권장, 대부분 환경에 적합)",
+            d, text=T("set.kdf_std"),
             variable=preset, value="standard").pack(anchor="w", padx=24)
         tk.Radiobutton(
-            d, text="강력 — 512MB 메모리 (느리지만 더 강력)",
+            d, text=T("set.kdf_high"),
             variable=preset, value="high").pack(anchor="w", padx=24)
         tk.Radiobutton(
-            d, text="편집증 — 1GB 메모리 (최강, 저사양 PC엔 무거움)",
+            d, text=T("set.kdf_para"),
             variable=preset, value="paranoid").pack(anchor="w", padx=24)
 
         sd = tk.IntVar(value=1 if self.config_data.get(
             "secure_delete", True) else 0)
-        tk.Label(d, text="원본 삭제 방식", font=("", 10, "bold")).pack(
+        tk.Label(d, text=T("set.del_title"), font=("", 10, "bold")).pack(
             anchor="w", padx=16, pady=(14, 4))
         tk.Checkbutton(
-            d, text="안전 삭제(무작위 덮어쓰기 후 삭제)",
+            d, text=T("set.del_secure"),
             variable=sd).pack(anchor="w", padx=24)
         tk.Label(
             d, fg="#888", justify="left", wraplength=380,
-            text=("※ SSD는 하드웨어 특성상 덮어쓰기로 흔적을 100% 지울 수 "
-                  "없습니다. 데이터 보호는 '암호화' 자체로 보장됩니다.")).pack(
+            text=T("set.del_note")).pack(
             anchor="w", padx=24, pady=4)
 
-        tk.Label(d, text="페퍼 모드 (KDF 추가 비밀)",
+        tk.Label(d, text=T("set.pep_title"),
                  font=("", 10, "bold")).pack(
             anchor="w", padx=16, pady=(14, 4))
         pep = tk.StringVar(value=self.config_data.get("pepper_mode", "app"))
         tk.Radiobutton(
-            d, text="앱 내장 — 이식 가능 (어느 PC에서나 비번만으로 열림)",
+            d, text=T("set.pep_app"),
             variable=pep, value="app").pack(anchor="w", padx=24)
         tk.Radiobutton(
-            d, text="OS 키체인 — 이 PC·계정 전용 (페퍼가 진짜 비밀이 됨)",
+            d, text=T("set.pep_kc"),
             variable=pep, value="keychain").pack(anchor="w", padx=24)
         tk.Label(
             d, fg="#a00", justify="left", wraplength=380,
-            text=("⚠ 키체인 모드로 만든 볼트는 '이 Windows 계정·이 PC'"
-                  "에서만 열립니다. OS 재설치·다른 PC 에서는 올바른 "
-                  "비밀번호로도 복구 불가 — 반드시 아래로 백업하세요.")).pack(
+            text=T("set.pep_warn")).pack(
             anchor="w", padx=24, pady=4)
         if not dpapi_available():
             tk.Label(d, fg="#888",
-                     text="(키체인 모드는 Windows 에서만 동작)").pack(
+                     text=T("set.kc_win_only")).pack(
                 anchor="w", padx=24)
 
         def backup_pepper():
             up = load_user_pepper() if dpapi_available() else None
             if up is None:
                 messagebox.showinfo(
-                    APP_NAME, "백업할 키체인 페퍼가 없습니다.\n키체인 "
-                    "모드로 폴더를 한 번 잠그면 생성됩니다.", parent=d)
+                    APP_NAME, T("msg.no_pep_backup"), parent=d)
                 return
             p = filedialog.asksaveasfilename(
-                title="페퍼 백업 저장(이 파일=비밀, 안전히 보관)",
+                title=T("title.pep_backup"),
                 defaultextension=".pepper",
-                filetypes=[("FolderVault pepper", "*.pepper")])
+                filetypes=[(T("ft.pepper"), "*.pepper")])
             if not p:
                 return
             try:
                 with open(_lp(p), "w", encoding="ascii") as fp:
                     fp.write(up.hex())
                 messagebox.showwarning(
-                    APP_NAME, "페퍼를 백업했습니다.\n\n이 파일은 그 자체가 "
-                    "비밀입니다 — 볼트와 '다른 곳'(오프라인 등)에 안전히 "
-                    "보관하세요. 분실 시 키체인 볼트는 복구 불가합니다.",
-                    parent=d)
+                    APP_NAME, T("msg.pep_backed"), parent=d)
             except OSError as e:
-                messagebox.showerror(APP_NAME, f"백업 실패:\n{e}", parent=d)
+                messagebox.showerror(
+                    APP_NAME, T("err.backup_fail", e=e), parent=d)
 
         def restore_pepper():
             if not dpapi_available():
                 messagebox.showwarning(
-                    APP_NAME, "Windows 에서만 가능합니다.", parent=d)
+                    APP_NAME, T("msg.win_only"), parent=d)
                 return
             p = filedialog.askopenfilename(
-                title="페퍼 백업 파일 선택",
-                filetypes=[("FolderVault pepper", "*.pepper"),
-                           ("모든 파일", "*.*")])
+                title=T("title.pep_restore"),
+                filetypes=[(T("ft.pepper"), "*.pepper"),
+                           (T("ft.all_files"), "*.*")])
             if not p:
                 return
             try:
                 up = bytes.fromhex(
                     open(_lp(p), "r", encoding="ascii").read().strip())
                 if len(up) != 32:
-                    raise ValueError("형식이 올바르지 않습니다(32바이트 아님).")
+                    raise ValueError(T("err.pep_badfmt"))
                 store_user_pepper(up)
                 messagebox.showinfo(
-                    APP_NAME, "페퍼를 복원했습니다. 이제 이 PC·계정에서 "
-                    "해당 키체인 볼트를 열 수 있습니다.", parent=d)
+                    APP_NAME, T("msg.pep_restored"), parent=d)
             except Exception as e:
                 messagebox.showerror(
-                    APP_NAME, f"복원 실패:\n{e}", parent=d)
+                    APP_NAME, T("err.restore_fail", e=e), parent=d)
 
         bf = tk.Frame(d)
         bf.pack(anchor="w", padx=24, pady=(2, 4))
-        tk.Button(bf, text="페퍼 백업(내보내기)",
+        tk.Button(bf, text=T("btn.pep_backup"),
                   command=backup_pepper).pack(side="left", padx=(0, 6))
-        tk.Button(bf, text="페퍼 복원(가져오기)",
+        tk.Button(bf, text=T("btn.pep_restore"),
                   command=restore_pepper).pack(side="left")
 
         def save():
+            lang_changed = (lang_var.get() != self.config_data.get("lang"))
             self.config_data["kdf_preset"] = preset.get()
             self.config_data["secure_delete"] = bool(sd.get())
             self.config_data["pepper_mode"] = pep.get()
+            self.config_data["lang"] = lang_var.get()
             save_json(CONFIG_PATH, self.config_data)
             d.destroy()
-            self._set_status("설정이 저장되었습니다.")
+            self._set_status(T("status.settings_saved"))
+            if lang_changed:
+                messagebox.showinfo(
+                    APP_NAME,
+                    T_lang("msg.lang_restart", lang_var.get()))
 
-        tk.Button(d, text="저장", width=12, command=save).pack(pady=16)
+        tk.Button(d, text=T("btn.save"), width=12,
+                  command=save).pack(pady=16)
         d.geometry(f"+{self.winfo_rootx()+90}+{self.winfo_rooty()+90}")
 
 
@@ -2339,7 +2836,7 @@ def main():
             with open(log, "a", encoding="utf-8") as fp:
                 fp.write(f"\n===== {now_iso()} =====\n{tb}\n")
         except Exception:
-            log = "(로그 기록 실패)"
+            log = T("log.fail")
         try:
             import tkinter as _tk
             from tkinter import messagebox as _mb
@@ -2347,9 +2844,8 @@ def main():
             _r.withdraw()
             _mb.showerror(
                 APP_NAME,
-                "프로그램 시작 중 오류가 발생했습니다.\n\n"
-                f"{tb.strip().splitlines()[-1]}\n\n"
-                f"자세한 내용:\n{log}")
+                T("msg.start_error",
+                  line=tb.strip().splitlines()[-1], log=log))
             _r.destroy()
         except Exception:
             pass

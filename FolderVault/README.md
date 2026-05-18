@@ -40,7 +40,7 @@ post-quantum on everything."
 
 ```
 pip install -r requirements.txt
-python folder_vault.py      # GUI (Korean UI)
+python folder_vault.py      # GUI (Korean or English — Settings -> language)
 python test_vault.py        # 143 self-test assertions across 25 categories
 ```
 
@@ -86,10 +86,10 @@ toy.
 
 ## Roadmap
 
+- [x] English UI (Settings -> language; Korean stays the default)
 - [ ] External security audit / independent review
 - [ ] CLI mode (no GUI)
 - [ ] Reproducible, CryptoHack-style proofs for the container format
-- [ ] Optional English UI
 
 ## Please tear it apart
 

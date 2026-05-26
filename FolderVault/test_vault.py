@@ -538,7 +538,7 @@ def main():
             f.write(b"CHANGE-PW-SECRET")
         cp_v = os.path.join(tmp, "cp.foldervault")
         fv.Vault.create_from_folder(cp_src, cp_v, PW, KDF)
-        fv.Vault(cp_v).change_password(PW, "새비번#1", KDF, secure=True)
+        fv.Vault(cp_v).change_password(PW, "새비번#1", KDF)
         leftovers = [n for n in os.listdir(tmp)
                      if n.startswith(".pwchg.")]
         check("비번변경 후 임시 작업폴더 잔존 없음", leftovers == [])
@@ -551,13 +551,12 @@ def main():
         check("비번변경 후 내용 무결",
               open(os.path.join(cp_r, "비밀.txt"), "rb").read()
               == b"CHANGE-PW-SECRET")
-        # secure=False 경로도 정상 동작 + 임시폴더 정리
-        fv.Vault(cp_v).change_password("새비번#1", "새비번#2", KDF,
-                                       secure=False)
-        check("secure=False 도 임시폴더 정리",
+        # 두 번째 비번 변경도 임시폴더 정리 + 새 비번으로 열림
+        fv.Vault(cp_v).change_password("새비번#1", "새비번#2", KDF)
+        check("연속 비번변경 임시폴더 정리",
               [n for n in os.listdir(tmp)
                if n.startswith(".pwchg.")] == [])
-        check("secure=False 후에도 새 비번 OK",
+        check("연속 비번변경 후에도 새 비번 OK",
               fv.Vault(cp_v).read_header("새비번#2").get("verifier")
               == "FOLDERVAULT-OK")
 
@@ -931,6 +930,136 @@ def main():
         hr = fv.Vault(hv).extract_to("hp", ho)
         check("v4 정상본 복원 무결",
               deep_equal(filecmp.dircmp(hv_s, hr)))
+
+        # --- 26. 위조 볼트의 경로탈출 차단(extract 전에 _open 단계 거부) -
+        # 정상 v3 볼트를 합성한 뒤, 인덱스 'p' 또는 폴더명에 traversal 을
+        # 주입한 변형을 만들어 _open 이 거부함을 검증.
+        def build_malicious(folder, vault_path, pw, kdf, *,
+                            rp_override=None, folder_name_override=None,
+                            t_override=None):
+            base = fv.Path(os.path.abspath(folder))
+            salt = os.urandom(16)
+            root = fv.derive_root_v3(pw, salt, kdf)
+            entries = []
+            for rdir, _ds, fs in os.walk(folder):
+                for nm in sorted(fs):
+                    fp = os.path.join(rdir, nm)
+                    entries.append({"p": fv.Path(fp).relative_to(base)
+                                    .as_posix(), "t": "f", "_src": fp})
+            if entries:
+                if rp_override is not None:
+                    entries[0]["p"] = rp_override
+                if t_override is not None:
+                    entries[0]["t"] = t_override
+            header = {"app": "FolderVault", "version": 4,
+                      "vault_id": fv.uuid.uuid4().hex,
+                      "name": folder_name_override or base.name,
+                      "created": fv.now_iso(),
+                      "verifier": "FOLDERVAULT-OK"}
+            nAh, nCh, hct = fv.casc_encrypt(
+                fv.subkey(root, fv.HKDF_HDR_A),
+                fv.subkey(root, fv.HKDF_HDR_C),
+                fv.json.dumps(header).encode("utf-8"), fv.MAGIC4)
+            with open(vault_path, "w+b") as out:
+                out.write(fv.MAGIC4); out.write(salt)
+                out.write(struct.pack(">I", int(kdf["time_cost"])))
+                out.write(struct.pack(">I", int(kdf["memory_cost"])))
+                out.write(struct.pack(">I", int(kdf["parallelism"])))
+                out.write(b"\x00")
+                out.write(nAh); out.write(nCh)
+                out.write(struct.pack(">I", len(hct))); out.write(hct)
+                for e in entries:
+                    rp = e["p"]
+                    fid = fv.uuid.uuid4().hex
+                    kA = fv.subkey(root, fv.HKDF_FILE_A + fv._b(rp))
+                    kC = fv.subkey(root, fv.HKDF_FILE_C + fv._b(rp))
+                    n = 0; s = 0
+                    with open(e["_src"], "rb") as fh:
+                        while True:
+                            data = fh.read(fv.CHUNK)
+                            if not data:
+                                break
+                            aad = (fv._b(rp) + b"|" + fid.encode("ascii")
+                                   + b"|" + str(n).encode("ascii"))
+                            a, c, ct = fv.casc_encrypt(kA, kC, data, aad)
+                            out.write(a); out.write(c)
+                            out.write(struct.pack(">I", len(ct)))
+                            out.write(ct)
+                            n += 1; s += len(data)
+                    ps = fv.padme(s); rem = ps - s
+                    while rem > 0:
+                        blk = os.urandom(min(fv.CHUNK, rem))
+                        aad = (fv._b(rp) + b"|" + fid.encode("ascii")
+                               + b"|" + str(n).encode("ascii"))
+                        a, c, ct = fv.casc_encrypt(kA, kC, blk, aad)
+                        out.write(a); out.write(c)
+                        out.write(struct.pack(">I", len(ct)))
+                        out.write(ct)
+                        n += 1; rem -= len(blk)
+                    e["n"] = n; e["s"] = s; e["ps"] = ps; e["fid"] = fid
+                    del e["_src"]
+                data_end = out.tell()
+                index = {"entries": entries,
+                         "total_size": sum(x["s"] for x in entries),
+                         "folder_name": folder_name_override or base.name}
+                nAi, nCi, ict = fv.casc_encrypt(
+                    fv.subkey(root, fv.HKDF_IDX_A),
+                    fv.subkey(root, fv.HKDF_IDX_C),
+                    fv.json.dumps(index).encode("utf-8"),
+                    fv.MAGIC4 + nAh + nCh)
+                out.write(nAi); out.write(nCi)
+                out.write(struct.pack(">Q", len(ict))); out.write(ict)
+                out.write(struct.pack(">Q", data_end))
+                out.flush()
+                sig_pos = out.tell()
+                digest = fv._sha512_region(out, 0, sig_pos)
+                ed_sig, ml_sig = fv.hybrid_sign(root, digest)
+                out.seek(sig_pos)
+                out.write(ed_sig); out.write(ml_sig)
+                out.write(struct.pack(">I", len(ml_sig)))
+
+        atk_src = os.path.join(tmp, "atk_src")
+        os.makedirs(atk_src)
+        with open(os.path.join(atk_src, "x.bin"), "wb") as f:
+            f.write(b"OWNED")
+        cases = [
+            ("rp_traversal",  "rp ../ traversal",
+             {"rp_override": "../../HIJACKED.txt"}),
+            ("rp_absolute",   "rp 절대경로(POSIX)",
+             {"rp_override": "/etc/passwd"}),
+            ("rp_nul",        "rp NUL",
+             {"rp_override": "ok\x00bad"}),
+            ("rp_backslash",  "rp 백슬래시",
+             {"rp_override": "a\\b"}),
+            ("rp_empty_comp", "rp 빈 컴포넌트",
+             {"rp_override": "a//b"}),
+            ("rp_dot_comp",   "rp '.' 컴포넌트",
+             {"rp_override": "a/./b"}),
+            ("rp_drive",      "rp 드라이브",
+             {"rp_override": "C:foo"}),
+            ("fn_traversal",  "folder_name ..",
+             {"folder_name_override": "../EVIL"}),
+            ("fn_sep",        "folder_name '/'",
+             {"folder_name_override": "a/b"}),
+            ("type_bad",      "entry t 비정상",
+             {"t_override": "x"}),
+        ]
+        for slug, label, kw in cases:
+            vp = os.path.join(tmp, f"atk_{slug}.foldervault")
+            build_malicious(atk_src, vp, "p", KDF, **kw)
+            expect_raises(f"위조 차단: {label}",
+                          fv.WrongPasswordOrCorrupt,
+                          lambda vp=vp: fv.Vault(vp).read_header("p"))
+            # extract_to 호출도 동일하게 거부되어야 함
+            od = os.path.join(tmp, f"atk_{slug}_out")
+            os.makedirs(od)
+            expect_raises(f"위조 차단(extract): {label}",
+                          fv.WrongPasswordOrCorrupt,
+                          lambda vp=vp, od=od:
+                              fv.Vault(vp).extract_to("p", od))
+            check(f"위조 시 dest 바깥 미기록: {label}",
+                  not os.path.exists(os.path.join(tmp, "HIJACKED.txt"))
+                  and not os.path.exists(os.path.join(tmp, "EVIL")))
 
     except Exception:
         import traceback

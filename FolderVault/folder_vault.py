@@ -35,13 +35,11 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import io
 import json
 import os
 import queue
 import stat
 import struct
-import sys
 import threading
 import time
 import traceback
@@ -281,6 +279,11 @@ _TR: dict[str, dict[str, str]] = {
         "ko": "구조 검증 실패(원본 데이터 영역 불일치).",
         "en": "Structure verification failed (source data region "
               "mismatch)."},
+    "err.unsafe_path": {
+        "ko": "볼트 인덱스에 안전하지 않은 경로가 들어 있어 거부했습니다 "
+              "(위조 의심).",
+        "en": "The vault index contains an unsafe path; rejected "
+              "(possible forgery)."},
     "name.restore_folder": {"ko": "복원폴더", "en": "RestoredFolder"},
     # ---- 메인 창 ----
     "app.title": {"ko": "FolderVault — 폴더 보안",
@@ -679,21 +682,26 @@ def human_size(n: int) -> str:
         if f < 1024 or unit == "TB":
             return f"{f:.0f} {unit}" if unit == "B" else f"{f:.1f} {unit}"
         f /= 1024
-    return f"{f:.1f} TB"
 
 
 def load_json(path: Path, default):
     try:
-        return json.loads(path.read_text("utf-8"))
+        with open(_lp(str(path)), "r", encoding="utf-8") as f:
+            return json.loads(f.read())
     except Exception:
         return default
 
 
 def save_json(path: Path, data) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
-    os.replace(tmp, path)
+    p_s = str(path)
+    parent_s = os.path.dirname(p_s)
+    if parent_s:
+        os.makedirs(_lp(parent_s), exist_ok=True)
+    tmp_s = p_s + ".tmp"
+    blob = json.dumps(data, ensure_ascii=False, indent=2)
+    with open(_lp(tmp_s), "w", encoding="utf-8") as f:
+        f.write(blob)
+    os.replace(_lp(tmp_s), _lp(p_s))
 
 
 # ===========================================================================
@@ -936,6 +944,58 @@ def path_is_within(child: str, parent: str) -> bool:
         return os.path.commonpath([c, p]) == p
     except (ValueError, OSError):
         return False
+
+
+def _safe_rel(rp) -> str:
+    """볼트 인덱스의 상대경로를 검증한다. 위조된 볼트의 경로탈출 차단.
+
+    합법 경로는 항상 ``Path.relative_to(base).as_posix()`` 의 결과 — 즉
+    '/' 로 구분된, 절대경로·드라이브문자·NUL·역슬래시·'.'/'..'·빈
+    컴포넌트가 없는 형태. 그 외엔 악성으로 간주하고 즉시 거부한다.
+    """
+    if not isinstance(rp, str) or not rp:
+        raise WrongPasswordOrCorrupt(T("err.unsafe_path"))
+    if "\x00" in rp or "\\" in rp:
+        raise WrongPasswordOrCorrupt(T("err.unsafe_path"))
+    if rp.startswith("/"):
+        raise WrongPasswordOrCorrupt(T("err.unsafe_path"))
+    for part in rp.split("/"):
+        if part in ("", ".", ".."):
+            raise WrongPasswordOrCorrupt(T("err.unsafe_path"))
+        if ":" in part:                       # Windows 드라이브/ADS 차단
+            raise WrongPasswordOrCorrupt(T("err.unsafe_path"))
+    return rp
+
+
+def _safe_name(name) -> str:
+    """폴더명(단일 컴포넌트) 검증. 구분자/특수 컴포넌트 모두 거부."""
+    if not isinstance(name, str) or not name:
+        raise WrongPasswordOrCorrupt(T("err.unsafe_path"))
+    if ("\x00" in name or "/" in name or "\\" in name
+            or ":" in name):
+        raise WrongPasswordOrCorrupt(T("err.unsafe_path"))
+    if name in (".", ".."):
+        raise WrongPasswordOrCorrupt(T("err.unsafe_path"))
+    return name
+
+
+def _validate_index(index, header) -> None:
+    """위조 볼트의 경로탈출/잘못된 타입 차단. _open 직후 일괄 검증."""
+    if not isinstance(index, dict):
+        raise WrongPasswordOrCorrupt(T("err.index_corrupt"))
+    entries = index.get("entries")
+    if not isinstance(entries, list):
+        raise WrongPasswordOrCorrupt(T("err.index_corrupt"))
+    fn = index.get("folder_name") or (
+        header.get("name") if isinstance(header, dict) else None)
+    if fn:
+        _safe_name(fn)
+    for e in entries:
+        if not isinstance(e, dict):
+            raise WrongPasswordOrCorrupt(T("err.unsafe_path"))
+        _safe_rel(e.get("p"))
+        if e.get("t") not in ("f", "d"):
+            raise WrongPasswordOrCorrupt(T("err.unsafe_path"))
 
 
 class UnsupportedLinkError(Exception):
@@ -1292,15 +1352,20 @@ class Vault:
         with open(_lp(self.path), "rb") as f:
             magic = f.read(8)
         if magic == MAGIC4:
-            return self._open_v4(password, filesize, user_pepper)
-        if magic == MAGIC3:
-            return self._open_v3(password, filesize, user_pepper)
-        if magic == MAGIC:
-            return self._open_v2(password, filesize)
-        if magic[:7] == MAGIC_PREFIX:
-            raise WrongPasswordOrCorrupt(
-                T("err.vault_old_test"))
-        raise WrongPasswordOrCorrupt(T("err.not_vault"))
+            ret = self._open_v4(password, filesize, user_pepper)
+        elif magic == MAGIC3:
+            ret = self._open_v3(password, filesize, user_pepper)
+        elif magic == MAGIC:
+            ret = self._open_v2(password, filesize)
+        elif magic[:7] == MAGIC_PREFIX:
+            raise WrongPasswordOrCorrupt(T("err.vault_old_test"))
+        else:
+            raise WrongPasswordOrCorrupt(T("err.not_vault"))
+        # 인덱스 안전성 검증 — 위조 볼트의 경로탈출/잘못된 타입 차단.
+        # 정상 볼트는 항상 Path.relative_to 결과만 저장하므로 통과.
+        _, _, header, index, _, _, _ = ret
+        _validate_index(index, header)
+        return ret
 
     # ---- v2 (읽기 호환 전용) -------------------------------------------
     def _open_v2(self, password: str, filesize: int):
@@ -1543,12 +1608,17 @@ class Vault:
                 ps = int(e.get("ps", s))             # v2 → ps == s
                 keys = _file_keys(ver, root, rp)
                 acc = 0
+                real_acc = 0
                 for ci in range(n):
                     aad = (_b(rp) + b"|" + fid.encode("ascii")
                            + b"|" + str(ci).encode("ascii"))
                     pt = _read_decrypt_chunk(f, ver, keys, aad)
                     acc += len(pt)
-                    done += len(pt)
+                    # 진행률은 실데이터(s) 기준 — Padmé 패딩은 미포함
+                    if real_acc < s:
+                        inc = min(len(pt), s - real_acc)
+                        real_acc += inc
+                        done += inc
                     if progress:
                         progress(done, total, T("prog.verifying", rp=rp))
                 if acc != ps:
@@ -1602,12 +1672,13 @@ class Vault:
                             aad = (_b(rp) + b"|" + fid.encode("ascii")
                                    + b"|" + str(ci).encode("ascii"))
                             pt = _read_decrypt_chunk(f, ver, keys, aad)
-                            # 실제 크기까지만 기록(Padmé 패딩은 폐기)
+                            # 실제 크기까지만 기록(Padmé 패딩은 폐기).
+                            # 진행률도 실데이터 기준으로만 누적.
                             if written < size:
                                 take = pt[:size - written]
                                 w.write(take)
                                 written += len(take)
-                            done += len(pt)
+                                done += len(take)
                             if progress:
                                 progress(done, total,
                                          T("prog.restoring", rp=rp))
@@ -1784,7 +1855,7 @@ class Vault:
         os.replace(_lp(tmp_path), _lp(dst_path))
 
     def change_password(self, old_pw: str, new_pw: str, kdf: dict,
-                         progress=None, secure: bool = True,
+                         progress=None,
                          src_user_pepper: bytes | None = None,
                          pmode: int = 0,
                          user_pepper: bytes | None = None) -> None:
@@ -1794,7 +1865,6 @@ class Vault:
 
         새 볼트가 전체 검증을 통과한 경우에만 기존 볼트를 원자적으로
         교체하므로, 변경 중 어떤 실패가 나도 기존 볼트는 손상되지 않는다.
-        (secure 인자는 더 이상 필요 없으나 호환성 위해 유지 — 무시됨.)
         """
         new_tmp = self.path + ".new"
         moved = False
@@ -2660,12 +2730,11 @@ class App(tk.Tk):
         if not new:
             return
         kdf = self._kdf()
-        secure = self.config_data.get("secure_delete", True)
         new_pmode, new_upep = self._pepper_for_create()
 
         def work(progress_cb, cancel_cb):
             Vault(vault_path).change_password(
-                old, new, kdf, progress=progress_cb, secure=secure,
+                old, new, kdf, progress=progress_cb,
                 src_user_pepper=src_upep,
                 pmode=new_pmode, user_pepper=new_upep)
             return True
@@ -2785,8 +2854,8 @@ class App(tk.Tk):
             if not p:
                 return
             try:
-                up = bytes.fromhex(
-                    open(_lp(p), "r", encoding="ascii").read().strip())
+                with open(_lp(p), "r", encoding="ascii") as fp:
+                    up = bytes.fromhex(fp.read().strip())
                 if len(up) != 32:
                     raise ValueError(T("err.pep_badfmt"))
                 store_user_pepper(up)
